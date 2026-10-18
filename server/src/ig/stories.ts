@@ -21,6 +21,7 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const ID = /^\d{1,30}$/;
 export const STORY_INTERVAL_MS = 45 * 60_000;
 export const STORY_JITTER_MS = 10 * 60_000;
+const STALE_ACCOUNT_MS = 30 * 24 * 3600_000;
 const FIRST_RUN_MS = 3 * 60_000;
 const BATCH = 10;
 const GAP_MS = 1500;
@@ -28,9 +29,11 @@ const MAX_AUTHORS_PER_RUN = 150;
 const MAX_ATTEMPTS = 3;
 const AVATAR_REFRESH_MS = 24 * 3600_000;
 
-/** Delay until the next check: the interval ± up to 10 minutes, at random. */
-export function storyDelay(random: () => number = Math.random): number {
-  return Math.round(STORY_INTERVAL_MS + (random() * 2 - 1) * STORY_JITTER_MS);
+/** Delay until the next check: the interval ± a random jitter of up to a quarter of it (at most 10 minutes). */
+export function storyDelay(minutes = STORY_INTERVAL_MS / 60_000, random: () => number = Math.random): number {
+  const interval = minutes * 60_000;
+  const jitter = Math.min(STORY_JITTER_MS, interval / 4);
+  return Math.round(interval + (random() * 2 - 1) * jitter);
 }
 
 export interface TrayEntry {
@@ -155,7 +158,7 @@ export class StoryLogger {
     if (!this.ctx.settings.get().storyLogging) return;
     this.nextCheckAt = Date.now() + delay;
     this.timer = setTimeout(() => {
-      void this.run().finally(() => this.schedule(storyDelay()));
+      void this.run().finally(() => this.schedule(storyDelay(this.ctx.settings.get().storyCheckMinutes)));
     }, delay);
     this.timer.unref();
   }
@@ -163,7 +166,7 @@ export class StoryLogger {
   /** "Check now" from the UI. */
   async checkNow(): Promise<void> {
     await this.run();
-    this.schedule(storyDelay());
+    this.schedule(storyDelay(this.ctx.settings.get().storyCheckMinutes));
   }
 
   private async paced<T>(fn: () => Promise<T>): Promise<T> {
@@ -192,6 +195,8 @@ export class StoryLogger {
     try {
       const tray = parseTray(await this.paced(() => src.rest<Obj>('GET', '/api/v1/feed/reels_tray/')), src.meId);
       const now = Date.now();
+      const settings = this.ctx.settings.get();
+      const chosen = settings.storyAccounts === 'selected' ? new Set(settings.storySelected) : null;
       const need: TrayEntry[] = [];
       for (const t of tray) {
         repo.upsertStoryUser({
@@ -201,6 +206,8 @@ export class StoryLogger {
           now,
         });
         const u = repo.getStoryUser(t.id);
+        // Every account in the bar is remembered (for picking accounts); only chosen ones are logged.
+        if (chosen && !chosen.has(t.id)) continue;
         const unfinished = repo.listStories({ userId: t.id, limit: 50 }).some((s) => s.status !== 'downloaded' && s.attempts < MAX_ATTEMPTS && s.taken_at > now - 24 * 3600_000);
         if (t.latest > (u?.last_reel_at ?? 0) || unfinished) need.push(t);
         if (t.avatar && (!u?.avatar_checked_at || now - u.avatar_checked_at > AVATAR_REFRESH_MS)) await this.avatar(src, t.id, t.avatar, u?.avatar_media_id ?? null);
@@ -300,7 +307,8 @@ export class StoryLogger {
         n++;
       }
     }
-    for (const avatar of repo.dropEmptyStoryUsers()) await this.dropMedia(avatar);
+    const s = this.ctx.settings.get();
+    for (const avatar of repo.dropEmptyStoryUsers(now - STALE_ACCOUNT_MS, s.storySelected)) await this.dropMedia(avatar);
     if (n) this.ctx.log.info({ deleted: n }, 'old stories deleted (retention)');
     return n;
   }

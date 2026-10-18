@@ -1,10 +1,10 @@
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import type { AuditEntry, SessionInfo, Settings, TotpSetupResponse } from '../../../shared/api';
+import type { AuditEntry, SessionInfo, Settings, StoryAccount, TotpSetupResponse } from '../../../shared/api';
 import { api, errorMessage } from '../api/client';
 import { Icon } from '../components/Icon';
-import { ConfirmButton, ErrorNote, Spinner, IgStatePill } from '../components/ui';
+import { Avatar, ConfirmButton, ErrorNote, Spinner, IgStatePill } from '../components/ui';
 import { formatDateTime } from '../lib/format';
 import { useAppState } from '../state/AppState';
 import { RecoveryKeyBox } from './Auth';
@@ -375,9 +375,36 @@ function LoggingSection() {
           />
         </label>
       </div>
+      <div className="form narrow">
+        <label>
+          Check every (minutes)
+          <input
+            type="number"
+            min={15}
+            max={720}
+            disabled={!s.storyLogging}
+            defaultValue={s.storyCheckMinutes}
+            onBlur={(e) => {
+              const v = Math.round(Number(e.target.value));
+              if (v >= 15 && v <= 720 && v !== s.storyCheckMinutes) save({ storyCheckMinutes: v });
+            }}
+          />
+        </label>
+      </div>
+      <fieldset className="radio-group" disabled={!s.storyLogging}>
+        <legend className="small">Whose stories</legend>
+        <label className="check">
+          <input type="radio" name="storyAccounts" checked={s.storyAccounts === 'all'} onChange={() => save({ storyAccounts: 'all' })} /> Everyone I follow
+        </label>
+        <label className="check">
+          <input type="radio" name="storyAccounts" checked={s.storyAccounts === 'selected'} onChange={() => save({ storyAccounts: 'selected' })} /> Only the
+          accounts I choose
+        </label>
+      </fieldset>
+      {s.storyAccounts === 'selected' ? <StoryAccountPicker selected={s.storySelected} onChange={(ids) => save({ storySelected: ids })} /> : null}
       <p className="muted small">
-        Checks for new stories about every 45 minutes (at random times) and saves them encrypted on your server. Stories are never marked as
-        seen. Stories older than the number of days above are deleted, also when story logging is off.
+        Checks for new stories at the interval above (each time randomly a few minutes earlier or later) and saves them encrypted on your
+        server. Stories are never marked as seen. Stories older than the number of days above are deleted, also when story logging is off.
       </p>
       <ErrorNote error={a.error} />
       {a.ok ? <p className="ok-note">{a.ok}</p> : null}
@@ -522,6 +549,46 @@ export function SettingsPage() {
       <InstagramSection />
       <AuditSection />
       <DangerSection />
+    </div>
+  );
+}
+
+/** Pick whose stories are logged: accounts seen in the stories bar (they appear once they post a story). */
+function StoryAccountPicker({ selected, onChange }: { selected: string[]; onChange: (ids: string[]) => void }) {
+  const [accounts, setAccounts] = useState<StoryAccount[] | null>(null);
+  const [q, setQ] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.storyAccounts().then(setAccounts, (e) => setError(errorMessage(e)));
+  }, []);
+  const chosen = new Set(selected);
+  const t = q.trim().toLowerCase();
+  const shown = (accounts ?? []).filter((a) => !t || (a.username ?? '').toLowerCase().includes(t) || (a.name ?? '').toLowerCase().includes(t));
+  const toggle = (id: string) => onChange(chosen.has(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  return (
+    <div className="story-picker">
+      <div className="row between wrap gap">
+        <span className="small">
+          {selected.length} of {accounts?.length ?? '…'} accounts chosen
+        </span>
+        <input type="search" placeholder="Search accounts" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      <ErrorNote error={error} />
+      {accounts === null && !error ? <Spinner /> : null}
+      {accounts && !accounts.length ? <p className="muted small">No accounts yet. Accounts appear here once they post a story (after the next check).</p> : null}
+      <div className="story-picker-list">
+        {shown.map((a) => (
+          <label key={a.id} className="story-pick">
+            <input type="checkbox" checked={chosen.has(a.id)} onChange={() => toggle(a.id)} />
+            <Avatar id={a.id} name={a.username ?? a.id} url={a.avatarUrl} size={32} />
+            <span className="story-pick-name">
+              <b>{a.username ?? a.id}</b>
+              {a.name ? <small className="muted">{a.name}</small> : null}
+            </span>
+            {a.count ? <small className="muted">{a.count} saved</small> : null}
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

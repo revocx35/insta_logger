@@ -10,6 +10,7 @@ import type {
   RecoverResponse,
   RotateRecoveryKeyResponse,
   SearchResponse,
+  StoryAccount,
   StoryAuthor,
   StoryPage,
   StoryStatus,
@@ -140,6 +141,7 @@ export const api = {
     request<{ comment: WebComment | null }>('POST', `/api/reels/${enc(id)}/comments`, { text, ...(replyTo ? { replyTo } : {}) }),
   storyStatus: () => request<StoryStatus>('GET', '/api/stories/status'),
   storyCheck: () => request<StoryStatus>('POST', '/api/stories/check'),
+  storyAccounts: () => request<StoryAccount[]>('GET', '/api/stories/accounts'),
   storyAuthors: () => request<StoryAuthor[]>('GET', '/api/stories/authors'),
   stories: (user?: string | null, before?: number | null) =>
     request<StoryPage>('GET', `/api/stories?limit=60${user ? `&user=${enc(user)}` : ''}${before ? `&before=${before}` : ''}`),

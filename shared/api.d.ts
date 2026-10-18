@@ -286,6 +286,12 @@ export interface Settings {
   storyLogging: boolean;
   /** Keep logged stories this many days (by when they were posted), then delete them. */
   storyRetentionDays: number; // 1..3650
+  /** Minutes between story checks (each time randomly up to a quarter of it, at most 10 minutes, earlier or later). */
+  storyCheckMinutes: number; // 15..720
+  /** Whose stories: everyone the owner follows, or only `storySelected`. */
+  storyAccounts: 'all' | 'selected';
+  /** Instagram user ids for `storyAccounts: 'selected'`. */
+  storySelected: string[];
 }
 
 export interface AuditEntry { id: number; ts: number; event: string; ip: string | null; detail: string | null }
@@ -313,6 +319,17 @@ export interface StoryItem {
   /** pending · downloaded · failed · too_large */
   status: string;
   url: string | null; // "/api/media/<id>" when downloaded
+}
+
+/** An account seen in the stories bar (for picking whose stories are logged). */
+export interface StoryAccount {
+  id: string;
+  username: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+  /** Stories saved of this account. */
+  count: number;
+  selected: boolean;
 }
 
 export interface StoryPage { items: StoryItem[]; nextBefore: number | null }

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { StoryAuthor, StoryItem, StoryPage, StoryStatus } from '../../../shared/api.js';
+import type { StoryAccount, StoryAuthor, StoryItem, StoryPage, StoryStatus } from '../../../shared/api.js';
 import type { AppContext } from '../context.js';
 import { F } from '../db/repo.js';
 import { getReader } from '../http/server.js';
@@ -30,6 +30,24 @@ export function registerStoryRoutes(app: FastifyInstance, ctx: AppContext): void
       count: u.count,
       latest: u.latest,
     }));
+    return list;
+  });
+
+  // Every account seen in the stories bar, for choosing whose stories are logged.
+  app.get('/api/stories/accounts', async (req) => {
+    const reader = getReader(ctx, req);
+    const chosen = new Set(ctx.settings.get().storySelected);
+    const list: StoryAccount[] = repo
+      .listKnownStoryUsers()
+      .map((u) => ({
+        id: u.id,
+        username: reader.tryText(...F.storyUsername(u.id), u.username_enc),
+        name: reader.tryText(...F.storyName(u.id), u.name_enc),
+        avatarUrl: u.avatar_media_id ? `/api/media/${u.avatar_media_id}` : null,
+        count: u.count,
+        selected: chosen.has(u.id),
+      }))
+      .sort((a, b) => (a.username ?? a.id).localeCompare(b.username ?? b.id));
     return list;
   });
 

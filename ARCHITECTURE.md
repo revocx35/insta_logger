@@ -173,8 +173,10 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   attached to the tab, except for single `Page.navigate`/`Page.reload` commands (open the login page from a blank or
   stray tab; reload a login page once on (re)start). It attaches again once `sessionid` + `ds_user_id` exist and the tab
   has left the login/challenge pages. The fake e2e checks `Target.getTargets().attached === false` while logged out.
-* **Story logging** (`ig/stories.ts`, `api/stories.ts`, `web/src/pages/Stories.tsx`; off by default). About every
-  45 min (± random ≤ 10 min, `storyDelay`) the stories bar is read (`GET /api/v1/feed/reels_tray/`, live videos and the
+* **Story logging** (`ig/stories.ts`, `api/stories.ts`, `web/src/pages/Stories.tsx`; off by default). Every
+  `storyCheckMinutes` (15–720, default 45; ± random ≤ a quarter of it, at most 10 min, `storyDelay`); whose stories:
+  everyone followed or only `storySelected` (`storyAccounts`; `GET /api/stories/accounts` lists every account seen in
+  the stories bar for picking; accounts unseen for 30 days without stories are forgotten) the stories bar is read (`GET /api/v1/feed/reels_tray/`, live videos and the
   owner's own reel skipped); authors with stories newer than `story_users.last_reel_at` (or unfinished downloads from
   the last 24 h) get their items from `PolarisStoriesV3ReelPageStandaloneQuery` (≤ 10 authors per request, ≥ 1.5 s
   apart, ≤ 150 authors per check). The largest photo / video version is downloaded through the browser into an
@@ -391,7 +393,7 @@ Migrations in `server/src/db/db.ts` (append-only). Bodies and edit history share
 | POST | /api/auth/totp/setup · enable · disable · /api/auth/recovery-key/rotate | ✓ | TOTP, recovery key |
 | GET | /api/ig/status | ✓ | `IgStatus` |
 | POST | /api/ig/restart · /api/ig/logout | ✓ | reload the tab / log the browser out of Instagram |
-| GET | /api/stories/status · /api/stories/authors · /api/stories?user=&before=&limit= | ✓ | `StoryStatus` · `StoryAuthor[]` · `StoryPage` (newest first; media via /api/media/:id) |
+| GET | /api/stories/status · /api/stories/accounts · /api/stories/authors · /api/stories?user=&before=&limit= | ✓ | `StoryStatus` · `StoryAuthor[]` · `StoryPage` (newest first; media via /api/media/:id) |
 | POST | /api/stories/check | ✓ | check for new stories now (6 per 10 min) |
 | GET | /api/reels?cursor= · /api/reels/media/:ref | ✓ | reels feed page (`WebPage<WebPost>`) · a reel's video/picture |
 | GET · POST | /api/reels/:id/comments · /api/reels/:id/like · POST /api/reels/:id/comments | ✓ | comments page · `{like}` · `{text}` (≤ 2200) |

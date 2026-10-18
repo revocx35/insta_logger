@@ -11,6 +11,9 @@ export const SettingsSchema = z.object({
   sessionRefreshHours: z.number().int().min(1).max(24),
   storyLogging: z.boolean(),
   storyRetentionDays: z.number().int().min(1).max(3650),
+  storyCheckMinutes: z.number().int().min(15).max(720),
+  storyAccounts: z.enum(['all', 'selected']),
+  storySelected: z.array(z.string().regex(/^\d{1,30}$/)).max(2000),
 });
 
 const KEY = 'settings';
@@ -35,6 +38,9 @@ export class SettingsStore {
       sessionRefreshHours: 2,
       storyLogging: false,
       storyRetentionDays: 30,
+      storyCheckMinutes: 45,
+      storyAccounts: 'all',
+      storySelected: [],
     };
     const raw = this.repo.getState(KEY);
     let stored: Partial<Settings> = {};

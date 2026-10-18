@@ -47,13 +47,16 @@ describe('story parsing', () => {
   });
 
   it('checks about every 45 minutes, ± up to 10, at random', () => {
-    expect(storyDelay(() => 0)).toBe(STORY_INTERVAL_MS - STORY_JITTER_MS);
-    expect(storyDelay(() => 0.5)).toBe(STORY_INTERVAL_MS);
+    expect(storyDelay(45, () => 0)).toBe(STORY_INTERVAL_MS - STORY_JITTER_MS);
+    expect(storyDelay(45, () => 0.5)).toBe(STORY_INTERVAL_MS);
     for (let i = 0; i < 100; i++) {
-      const d = storyDelay();
+      const d = storyDelay(45);
       expect(d).toBeGreaterThanOrEqual(35 * 60_000);
       expect(d).toBeLessThanOrEqual(55 * 60_000);
     }
+    // Short intervals: at most a quarter of it either way; long ones: still at most 10 minutes.
+    expect(storyDelay(20, () => 0)).toBe(15 * 60_000);
+    expect(storyDelay(240, () => 1)).toBe(250 * 60_000);
   });
 });
 
@@ -160,6 +163,22 @@ describe('StoryLogger', () => {
     expect(calls.filter((x) => x.includes('501') || x.includes('502'))).toEqual([]);
   });
 
+  it('logs only the chosen accounts, but lists everyone seen for picking', async () => {
+    h.ctx.settings.update({ storyLogging: true, storyAccounts: 'selected', storySelected: ['22'] });
+    const s = new StoryLogger(h.ctx, () => src);
+    await s.run();
+    expect(calls.filter((x) => x.startsWith('Polaris'))).toEqual(['PolarisStoriesV3ReelPageStandaloneQuery 22']);
+    expect(h.ctx.repo.storyCount()).toBe(1);
+    const accounts = (await c.req('GET', '/api/stories/accounts')).body as { id: string; username: string; selected: boolean; count: number }[];
+    expect(accounts.map((a) => [a.id, a.username, a.selected, a.count])).toEqual([
+      ['11', 'user11', false, 0],
+      ['22', 'user22', true, 1],
+    ]);
+    expect((await c.req('PUT', '/api/settings', { storySelected: ['x1'] })).status).toBe(400);
+    expect((await c.req('PUT', '/api/settings', { storyCheckMinutes: 5 })).status).toBe(400);
+    expect((await c.req('PUT', '/api/settings', { storyCheckMinutes: 120, storyAccounts: 'all' })).body).toMatchObject({ storyCheckMinutes: 120, storyAccounts: 'all' });
+  });
+
   it('deletes stories older than the retention, with their files', async () => {
     h.ctx.settings.update({ storyLogging: true, storyRetentionDays: 2 });
     const s = new StoryLogger(h.ctx, () => src);
@@ -170,6 +189,10 @@ describe('StoryLogger', () => {
     expect(h.ctx.repo.storyCount()).toBe(0);
     expect(h.ctx.repo.getMedia(media)).toBeUndefined();
     expect((await c.req('GET', '/api/stories/authors')).body).toEqual([]);
+    // Accounts seen recently stay pickable; ones not seen for 30 days are forgotten.
+    expect(((await c.req('GET', '/api/stories/accounts')).body as unknown[]).length).toBe(2);
+    await s.prune(Date.now() + 40 * 24 * H);
+    expect((await c.req('GET', '/api/stories/accounts')).body).toEqual([]);
   });
 
   it('needs a login, validates input, and "check now" needs Instagram', async () => {

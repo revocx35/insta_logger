@@ -861,12 +861,21 @@ export class Repo implements DataKeyStore {
     this.db.prepare('DELETE FROM stories WHERE id = ?').run(id);
   }
 
-  /** Authors without stories left (after retention) and their avatar media ids. */
-  dropEmptyStoryUsers(): number[] {
+  /** Every account seen in the stories bar, with its saved story count. */
+  listKnownStoryUsers(): (StoryUserRow & { count: number })[] {
+    return this.db
+      .prepare('SELECT u.*, (SELECT COUNT(*) FROM stories s WHERE s.user_id = u.id) AS count FROM story_users u')
+      .all() as (StoryUserRow & { count: number })[];
+  }
+
+  /** Accounts without stories that weren't in the stories bar since [staleBefore], and their avatar media ids. */
+  dropEmptyStoryUsers(staleBefore: number, keep: string[] = []): number[] {
     return this.transaction(() => {
-      const rows = this.db
-        .prepare('SELECT id, avatar_media_id FROM story_users WHERE NOT EXISTS (SELECT 1 FROM stories s WHERE s.user_id = story_users.id)')
-        .all() as { id: string; avatar_media_id: number | null }[];
+      const rows = (
+        this.db
+          .prepare('SELECT id, avatar_media_id FROM story_users WHERE updated_at < ? AND NOT EXISTS (SELECT 1 FROM stories s WHERE s.user_id = story_users.id)')
+          .all(staleBefore) as { id: string; avatar_media_id: number | null }[]
+      ).filter((r) => !keep.includes(r.id));
       for (const r of rows) this.db.prepare('DELETE FROM story_users WHERE id = ?').run(r.id);
       return rows.map((r) => r.avatar_media_id).filter((x): x is number => x !== null);
     });
