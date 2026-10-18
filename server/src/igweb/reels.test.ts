@@ -175,3 +175,20 @@ describe('IgReels likes and comments', () => {
     await expect(r.like('1', true)).rejects.toThrow(/did not accept/);
   });
 });
+
+describe('MediaRefs prefetch', () => {
+  it('fetches a ref into the cache ahead of time, once', async () => {
+    const refs = new MediaRefs();
+    const path = refs.ref(CDN)!;
+    const id = MediaRefs.idOf(path)!;
+    expect(id).toHaveLength(22);
+    expect(MediaRefs.idOf('/api/media/1')).toBeNull();
+    let calls = 0;
+    const dl: Downloader = { fetch: async (_u, _m, sink) => (calls++, await sink(Buffer.from('v')), { status: 'ok', mime: 'video/mp4', size: 1 }) };
+    refs.prefetch(id, dl);
+    refs.prefetch(id, dl);
+    await new Promise((r) => setTimeout(r, 10));
+    expect((await refs.get(id, dl))?.data.toString()).toBe('v');
+    expect(calls).toBe(1);
+  });
+});

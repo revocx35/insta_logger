@@ -201,7 +201,9 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   Web's own reels query (`PolarisClipsTabDesktopPaginationQuery`, variables copied from its /reels/ page, already-shown
   reels passed as `seen_reels`) inside the tab, paced (one at a time, ≥ 500 ms apart). Videos and pictures: the server
   replaces every CDN link with an opaque ref (`MediaRefs`, memory only, 6 h), fetches it through the browser on request
-  (`GET /api/reels/media/:ref`, ≤ 40 MB, 128 MB in-memory cache, Range support, `sandbox` CSP). Nothing of it is stored
+  (`GET /api/reels/media/:ref`, ≤ 40 MB, 128 MB in-memory cache, Range support, `sandbox` CSP). Preloading: the first
+  4 videos of every reels page are fetched into the cache right away (`MediaRefs.prefetch`); the web page renders the
+  next 3 reels with `preload="auto"` and the Android app requests their first bytes, which makes the server cache them. Nothing of it is stored
   or logged. "Send" posts the reel's link (`https://www.instagram.com/reel/<code>/`) through the normal send route;
   Instagram shows it as a reel card. Comments are read over REST (`IgPage.rest`: `/api/v1/media/<id>/comments/`,
   with the first replies); likes, unlikes, comments and replies use Instagram Web's own mutations

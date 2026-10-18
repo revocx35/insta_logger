@@ -5,6 +5,9 @@ import { Icon } from '../components/Icon';
 import { Avatar, EmptyState, ErrorNote, Spinner } from '../components/ui';
 import { useAppState } from '../state/AppState';
 
+/** How many of the next reels preload their video (like Instagram). */
+const PRELOAD_AHEAD = 3;
+
 /** Instagram's reels, played through the server; "Send" shares a reel's link into a chat. */
 export function ReelsPage() {
   const { ig } = useAppState();
@@ -82,7 +85,8 @@ export function ReelsPage() {
             key={r.id}
             reel={r}
             index={i}
-            near={Math.abs(i - active) <= 1}
+            near={i >= active - 1 && i <= active + PRELOAD_AHEAD}
+            ahead={i > active && i <= active + PRELOAD_AHEAD}
             active={i === active}
             muted={muted}
             onVisible={setActive}
@@ -120,6 +124,8 @@ function Reel(props: {
   reel: WebPost;
   index: number;
   near: boolean;
+  /** One of the next reels: its video is preloaded so swiping to it starts at once. */
+  ahead: boolean;
   active: boolean;
   muted: boolean;
   onVisible: (i: number) => void;
@@ -127,7 +133,7 @@ function Reel(props: {
   onShare: () => void;
   onComments: () => void;
 }) {
-  const { reel, index, near, active, muted, onVisible, onMute, onShare, onComments } = props;
+  const { reel, index, near, ahead, active, muted, onVisible, onMute, onShare, onComments } = props;
   const box = useRef<HTMLElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const [paused, setPaused] = useState(false);
@@ -193,7 +199,7 @@ function Reel(props: {
             loop
             playsInline
             muted={muted}
-            preload={active ? 'auto' : 'metadata'}
+            preload={active || ahead ? 'auto' : 'metadata'}
             onClick={toggle}
             onDoubleClick={() => !liked && void like()}
           />

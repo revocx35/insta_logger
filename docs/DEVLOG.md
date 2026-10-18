@@ -66,3 +66,4 @@
 - Native Android client released as a separate repo: github.com/revocx35/insta_logger_android (0.1.0).
 - Story logging (owner asked by voice): followed accounts' stories every ~45 min (random ±10), never marked seen, encrypted, retention in days (Settings). e2e 61.
 - Story settings: check interval (15–720 min), everyone or chosen accounts (picker from accounts seen in the stories bar).
+- Reels preloading: server prefetches the first 4 videos of each page; web/Android warm the next 3 while watching.

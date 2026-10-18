@@ -77,6 +77,17 @@ export class MediaRefs {
     return f;
   }
 
+  /** Starts fetching a ref into the cache in the background (preloading the next reels). */
+  prefetch(id: string, dl: Downloader): void {
+    if (this.cache.has(id) || this.inflight.has(id)) return;
+    void this.get(id, dl).catch(() => undefined);
+  }
+
+  /** The ref id of an app media URL (`/api/reels/media/<id>`), else null. */
+  static idOf(src: string): string | null {
+    return /^\/api\/reels\/media\/([A-Za-z0-9_-]{22})$/.exec(src)?.[1] ?? null;
+  }
+
   private async fetch(url: string, dl: Downloader): Promise<Fetched | null> {
     const parts: Buffer[] = [];
     const out = await dl.fetch(url, MAX_MEDIA_BYTES, async (c) => void parts.push(c));

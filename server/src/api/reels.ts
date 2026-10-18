@@ -13,6 +13,9 @@ import { parseRange } from './media.js';
  * server's browser, its comments, liking and commenting. Nothing is stored; sharing a reel to a chat uses the normal
  * send route (its link).
  */
+/** Videos preloaded right away from each new page of reels (the apps warm the next ones while you watch). */
+const PRELOAD_FIRST = 4;
+
 export function registerReelsRoutes(app: FastifyInstance, ctx: AppContext): void {
   const origin = ctx.config.igWebOrigin;
   const refs = new MediaRefs(origin === 'https://www.instagram.com' ? undefined : origin);
@@ -25,6 +28,15 @@ export function registerReelsRoutes(app: FastifyInstance, ctx: AppContext): void
     const { cursor } = z.object({ cursor: z.string().min(1).max(1200).optional() }).strict().parse(req.query);
     try {
       const page: WebPage<WebPost> = await reels.page(cursor ?? null);
+      // Preload the first videos of the page (like Instagram does), so swiping to them doesn't wait for the download.
+      const src = ctx.ig.webSource();
+      if (src) {
+        for (const p of page.items.slice(0, PRELOAD_FIRST)) {
+          const v = p.media.find((m) => m.kind === 'video');
+          const id = v ? MediaRefs.idOf(v.src) : null;
+          if (id) refs.prefetch(id, src.downloader);
+        }
+      }
       return page;
     } catch (e) {
       throw e instanceof AppError ? e : toAppError(e);
