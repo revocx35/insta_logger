@@ -107,9 +107,13 @@ Out of scope on purpose: calls, multiple accounts or tenants, starting new chats
   is reCAPTCHA Enterprise in a `www.fbsbx.com/captcha/recaptcha/iframe/` frame; blocked, it shows only a grey icon).
   This Chromium blocks third-party cookies by default; `CookiesAllowedForUrls` allows them for Google (reCAPTCHA) and
   Meta (`facebook.com`, `fbsbx.com`) frames only when the top-level page is `https://www.instagram.com`. Without the
-  `_GRECAPTCHA` cookie a solved captcha is rejected and Instagram sends you back to the login page;
-  no downloads, file pickers, printing,
-  password manager, sign-in, sync, extensions, notifications, geolocation, camera or microphone.
+  `_GRECAPTCHA` cookie a solved captcha is rejected and Instagram sends you back to the login page. No downloads,
+  file pickers, printing, password manager, sign-in, sync, extensions, notifications, geolocation, camera or microphone.
+* **Looking like a normal browser.** Instagram's login runs an "anti-scripting" check that keeps asking for a captcha
+  when the browser looks automated. So: WebGL through Mesa's software renderer (`--ignore-gpu-blocklist`, Xvfb GLX;
+  WebGL renderer "ANGLE (Mesa, llvmpipe …)" like a Linux PC without a GPU driver; without it there was no WebGL at all),
+  the server's time zone (`TZ` from `.env`, written by setup.sh), and no debugger attached to the tab while it is logged
+  out (§ 5, "Hands off while logged out").
 
 ## 4. App (server) — `server/`
 
@@ -131,6 +135,8 @@ server/src/
     service.ts        IgService: connects to Chromium, keeps one Instagram tab on the inbox, login/challenge detection,
                       watchdog, reconnects, timers (reconcile, avatars), applies deltas in order
     browser.ts        resolve host → IP, CDP reachability, tab choice, URL classification (inbox/thread/login/challenge)
+    loginwatch.ts     while logged out: tab list (HTTP) + cookie jar (browser-level CDP) without attaching to the tab;
+                      opens/reloads the login page with a one-command attach; decides when to attach (pure, tested)
     page.ts           IgPage: own CDP session on the tab — reads the stream (Network.webSocketFrameReceived, also in
                       workers), learns doc ids + headers from the tab's GraphQL requests, runs GraphQL inside the page,
                       downloads files through the browser (Network.loadNetworkResource + IO.read), login cookies check
@@ -160,6 +166,13 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
 * **The tab stays on `/direct/inbox/`.** Right after login (feed, "save login info?") it is sent there at once;
   elsewhere (owner browsing over VNC, an open thread that would send "Seen") after 2 minutes. Login and challenge pages
   are left alone: the owner answers them over VNC (state `login` / `challenge`; the UI shows a banner).
+* **Hands off while logged out** (`loginwatch.ts`). Puppeteer enables the Runtime domain in the page and in every frame
+  (also the reCAPTCHA frames), which pages can detect; Instagram's login then kept asking for a captcha. So when the
+  tab is (or goes to) a login/challenge page, or there is no session, the app disconnects puppeteer and only *looks*:
+  every 3 s it reads `/json/list` (HTTP) and `Storage.getCookies` over a short browser-level connection. Nothing is
+  attached to the tab, except for single `Page.navigate`/`Page.reload` commands (open the login page from a blank or
+  stray tab; reload a login page once on (re)start). It attaches again once `sessionid` + `ds_user_id` exist and the tab
+  has left the login/challenge pages. The fake e2e checks `Target.getTargets().attached === false` while logged out.
 * **Logged in** = `sessionid` and `ds_user_id` cookies present for the Instagram origin (values never logged) and not on
   a login/challenge URL. The account: `CurrentUserInitialData.IG_USER_EIMU` (messaging id = sender id of own messages),
   `PolarisViewer.data` (Instagram id, username, name), `IGDMqttWebDeviceID.clientId` (needed by the inbox query);
@@ -387,8 +400,8 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
 * `web`: vitest for `igText` (links, mentions, injection attempts, hostile input speed), typecheck, production build.
 * `scripts/smoke.sh` (23 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
   page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox.
-* `scripts/dev/fake-e2e.mts` (37 checks): all three real images and real Chromium against `fake-instagram.mts` —
-  login detection and re-login, history import (3 chats, paging, history photo), live stream message, unsend kept,
+* `scripts/dev/fake-e2e.mts` (39 checks): all three real images and real Chromium against `fake-instagram.mts` —
+  login detection and re-login (nothing attached to the tab while logged out), history import (3 chats, paging, history photo), live stream message, unsend kept,
   edit history, reaction, live photo downloaded through the browser, sending (text+reply, react/unreact, edit, unsend
   with long thread id, photo upload with a > 2^53 attachment id, stored from the upload), tokens/headers on every
   GraphQL request, doc id learned from the page, downtime reconcile (missed message logged, unsent-while-down flagged),

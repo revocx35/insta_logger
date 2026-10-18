@@ -374,7 +374,7 @@ docker compose down               # stop (data stays in Docker volumes)
 cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck
 cd web && npm ci && npm test && npm run build
 scripts/smoke.sh                                   # full stack in an isolated compose project (23 checks, real instagram.com login page)
-cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (37 checks: stream, unsend, media, sending, reconcile)
+cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (39 checks: login hands-off, stream, unsend, media, sending, reconcile)
 ```
 
 Docs: [ARCHITECTURE.md](ARCHITECTURE.md) (design), [docs/instagram-notes.md](docs/instagram-notes.md) (Instagram Web

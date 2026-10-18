@@ -39,6 +39,8 @@
   looked like a bot: no WebGL at all (no GPU, no software GL), time zone UTC/unknown. Now: Mesa llvmpipe WebGL
   (`--ignore-gpu-blocklist`, Xvfb GLX; renderer "ANGLE (Mesa, llvmpipe …)" like a Linux PC without a GPU driver, sandbox
   still on), and `TZ` in `.env` (setup.sh writes the server's zone) passed to the chromium container.
-- Open: keep the app's CDP off the tab while it is on login/challenge pages (puppeteer's Page enables Runtime in the
-  page and the reCAPTCHA frames; detectable). Plan: poll `/json/list` + browser-level `Storage.getCookies` with a raw
-  WebSocket during login, attach puppeteer only once `sessionid` exists and the tab left the login pages.
+- Hands off while logged out (`ig/loginwatch.ts`): puppeteer's Page enables Runtime in the page and the reCAPTCHA
+  frames, which pages can detect. Now, when the tab is on a login/challenge page or there is no session, the app
+  disconnects puppeteer and polls `/json/list` + browser-level `Storage.getCookies` (raw WebSocket) every 3 s; only
+  single navigate/reload commands attach briefly. It attaches again once `sessionid` + `ds_user_id` exist and the tab
+  left the login pages. Fake e2e (39 checks) asserts `Target.getTargets().attached === false` while logged out.

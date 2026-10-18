@@ -9,7 +9,7 @@ Read them before changing anything. In short:
   Instagram Web's own GraphQL requests run inside its tab).
 - **Build/test:** `cd server && npm test && npm run typecheck` · `cd web && npm test && npm run build` ·
   full stack `scripts/smoke.sh` (real instagram.com login page) · fake-Instagram end to end
-  `cd server && npx tsx ../scripts/dev/fake-e2e.mts` (37 checks; needs Docker, ports 29443/29080/18555 free).
+  `cd server && npx tsx ../scripts/dev/fake-e2e.mts` (39 checks; needs Docker, ports 29443/29080/18555 free).
 - **Where things are:** Instagram integration `server/src/ig/` (`service.ts` lifecycle, `page.ts` CDP/GraphQL/downloads,
   `dgw.ts` stream decoder, `mapper.ts` messages, `ingest.ts` DB writes, `sync.ts` history/reconcile, `sender.ts`),
   HTTP API `server/src/api/`, web UI `web/src`, API contract `shared/api.d.ts`, test fixtures `server/src/testutil/igfixtures.ts`.

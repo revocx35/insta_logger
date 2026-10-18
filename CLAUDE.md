@@ -12,6 +12,9 @@ Read these first, every session:
   text as HTML. Never weaken CSP, cookie flags, network isolation, the Chromium sandbox or its URL policy.
 - `shared/api.d.ts` is the server↔web contract. Change it deliberately and update both sides.
 - The app only *reads* Instagram's message stream (CDP Network events). Never send frames on it.
+- While Instagram is logged out or on a login/challenge page, nothing may be attached to the tab (`ig/loginwatch.ts`):
+  no puppeteer Page, no CDP domains in the page or its frames. Instagram's login notices debuggers and loops on captchas.
+- Keep the browser looking normal: WebGL (Mesa llvmpipe), the server's time zone (`TZ`), no automation flags.
 - GraphQL requests run inside the Instagram tab (`IgPage.graphql`); tokens stay in the page. Doc ids come from
   `ig/docs.ts` (defaults) or are learned from the tab — never hard-code them elsewhere.
 - Instagram's signed media links live only in memory (`MediaSources`). Media is fetched only from Instagram/Meta CDN
@@ -26,7 +29,7 @@ Read these first, every session:
 - Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`).
 - Web: `cd web && npm test && npm run build`.
 - Full stack from source: `scripts/smoke.sh` (23 checks). Standalone layout: `scripts/smoke.sh --deploy`.
-- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (37 checks).
+- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (39 checks).
 - UI screenshots: `scripts/dev/README.md` (`ui-shots.mts`). Sample data: `server/src/testutil/seed.ts`.
 
 ## Gotchas learned the hard way

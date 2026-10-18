@@ -9,6 +9,7 @@ import { DocIds } from './docs.js';
 import { Ingest, type Me } from './ingest.js';
 import { setTestMediaOrigin } from './mapper.js';
 import { MediaQueue } from './media.js';
+import { lookAtTab, nextLoginStep, steerTab, type TabLook } from './loginwatch.js';
 import { IgPage, IgRequestError } from './page.js';
 import { Sender } from './sender.js';
 import { INITIAL_SYNC_KEY, Sync } from './sync.js';
@@ -23,6 +24,10 @@ const AWAY_FROM_INBOX_MS = 2 * 60_000;
 /** No frame at all from the message stream for this long while ready: reload the tab. */
 const STREAM_SILENCE_MS = 20 * 60_000;
 const RESNAPSHOT_DELAY_MS = 30_000;
+/** While logged out: how often the tab and the cookie jar are looked at (from outside, see loginwatch.ts). */
+const LOGIN_POLL_MS = 3_000;
+const LOGIN_TEXT = 'Log in to Instagram on the Instagram screen';
+const CHALLENGE_TEXT = 'Instagram asks for a confirmation: answer it on the Instagram screen';
 
 /**
  * The Instagram integration: keeps one Instagram Web tab (in the Chromium container) on the inbox, reads its message
@@ -49,6 +54,7 @@ export class IgService implements IgController {
   private watchdogFailures = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private checkTimer: NodeJS.Timeout | null = null;
+  private watchTimer: NodeJS.Timeout | null = null;
   private reconcileTimer: NodeJS.Timeout | null = null;
   private avatarTimer: NodeJS.Timeout | null = null;
   private resnapshotTimer: NodeJS.Timeout | null = null;
@@ -140,19 +146,28 @@ export class IgService implements IgController {
 
   async start(): Promise<void> {
     if (!this.ctx.config.igEnabled || !this.ctx.repo.hasOwner()) return;
-    if (this.browser || this.connecting) return;
+    if (this.browser || this.connecting || this.watchTimer) return;
     this.stopped = false;
     void this.connect();
   }
 
-  private async connect(): Promise<void> {
+  /** [fresh]: (re)starting, as opposed to coming back from watching a login (a login page then gets reloaded once). */
+  private async connect(fresh = true): Promise<void> {
     if (this.connecting || this.stopped) return;
     this.connecting = true;
     const gen = ++this.generation;
-    this.setState('starting', 'Connecting to Chromium…');
+    if (fresh) this.setState('starting', 'Connecting to Chromium…');
     try {
       const browserURL = await resolveBrowserUrl(this.ctx.config.chromiumHost, this.ctx.config.cdpPort);
       if (!(await cdpReachable(browserURL))) throw new Error('Chromium is not reachable yet');
+      // Logged out, or on a login/check page: keep hands off the tab until the login is done.
+      const look = await lookAtTab(browserURL, this.ctx.config.igWebOrigin);
+      if (gen !== this.generation) return;
+      if (nextLoginStep(look, { fresh, strayPolls: 0 }) !== 'attach') {
+        this.attempt = 0;
+        this.watchLogin(gen, browserURL, look, fresh);
+        return;
+      }
       const browser = await puppeteer.connect({ browserURL, defaultViewport: null, protocolTimeout: 180_000 });
       if (gen !== this.generation) {
         await browser.disconnect();
@@ -226,6 +241,7 @@ export class IgService implements IgController {
 
   private async teardown(): Promise<void> {
     this.generation++;
+    this.stopWatch();
     this.media.pause();
     for (const t of [this.checkTimer, this.reconcileTimer, this.avatarTimer]) if (t) clearInterval(t);
     if (this.resnapshotTimer) clearTimeout(this.resnapshotTimer);
@@ -332,13 +348,10 @@ export class IgService implements IgController {
       if (this.watchdogFailures >= 3) return this.onPageLost(gen, 'Instagram page unresponsive');
       if (!alive) return;
       const kind: PageKind = classifyUrl(page.url(), this.ctx.config.igWebOrigin);
-      if (kind === 'login') {
+      if (kind === 'login' || kind === 'challenge') {
         this.pauseLogging();
-        return this.setState('login', 'Log in to Instagram on the Instagram screen');
-      }
-      if (kind === 'challenge') {
-        this.pauseLogging();
-        return this.setState('challenge', 'Instagram asks for a confirmation: answer it on the Instagram screen');
+        this.setLoginState(kind);
+        return void this.handOff(gen);
       }
       const userId = await tab.loggedInUserId().catch(() => null);
       if (!userId) {
@@ -393,6 +406,72 @@ export class IgService implements IgController {
 
   private pauseLogging(): void {
     this.media.pause();
+  }
+
+  private setLoginState(kind: PageKind): void {
+    if (kind === 'challenge') this.setState('challenge', CHALLENGE_TEXT);
+    else this.setState('login', LOGIN_TEXT);
+  }
+
+  /* ------------------------------------------------- logged out */
+
+  /** The tab went to a login or check page: detach from it and watch it from outside until the login is done. */
+  private async handOff(gen: number): Promise<void> {
+    if (gen !== this.generation) return;
+    await this.teardown();
+    this.attempt = 0;
+    void this.connect(false);
+  }
+
+  /**
+   * Waits for the owner to log in over VNC with nothing attached to the tab (see loginwatch.ts): polls where the tab
+   * is and whether the cookie jar holds a session, opens the login page when needed, and attaches (connect) once the
+   * login is done.
+   */
+  private watchLogin(gen: number, browserURL: string, first: TabLook, fresh: boolean): void {
+    const origin = this.ctx.config.igWebOrigin;
+    let stray = 0;
+    let failures = 0;
+    let busy = true;
+    const act = async (look: TabLook, reload: boolean): Promise<void> => {
+      if (gen !== this.generation) return;
+      const next = nextLoginStep(look, { fresh: reload, strayPolls: stray });
+      if (next === 'attach') {
+        this.stopWatch();
+        void this.connect(false);
+        return;
+      }
+      this.setLoginState(look.kind);
+      stray = next === 'wait' && look.kind !== 'login' && look.kind !== 'challenge' ? stray + 1 : 0;
+      if (next === 'open_login') await steerTab(browserURL, look.tab, { goto: `${origin}/accounts/login/` });
+      else if (next === 'reload') await steerTab(browserURL, look.tab, { reload: true });
+    };
+    const settle = (p: Promise<void>) =>
+      p
+        .then(() => {
+          failures = 0;
+        })
+        .catch((err) => {
+          if (gen !== this.generation) return;
+          this.ctx.log.debug({ err: (err as Error).message }, 'login watch failed');
+          if (++failures >= 3) void this.teardown().then(() => this.scheduleReconnect('Lost connection to Chromium'));
+        })
+        .finally(() => {
+          busy = false;
+        });
+    this.stopWatch();
+    this.watchTimer = setInterval(() => {
+      if (busy || gen !== this.generation) return;
+      busy = true;
+      void settle(lookAtTab(browserURL, origin).then((look) => act(look, false)));
+    }, LOGIN_POLL_MS);
+    this.watchTimer.unref();
+    void settle(act(first, fresh));
+  }
+
+  private stopWatch(): void {
+    if (this.watchTimer) clearInterval(this.watchTimer);
+    this.watchTimer = null;
   }
 
   private async onReady(gen: number, userId: string): Promise<void> {

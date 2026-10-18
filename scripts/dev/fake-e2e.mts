@@ -93,6 +93,25 @@ async function until<T>(what: string, fn: () => Promise<T | null | undefined | f
   return null;
 }
 
+/** Whether a CDP client is attached to the Instagram tab (asked from inside the app container: CDP is internal). */
+function tabAttached(): boolean | null {
+  const js = `require('node:dns/promises').lookup('chromium', { family: 4 }).then(async ({ address }) => {
+    const v = await (await fetch('http://' + address + ':9223/json/version')).json();
+    const ws = new WebSocket('ws://' + address + ':9223' + new URL(v.webSocketDebuggerUrl).pathname);
+    ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Target.getTargets' }));
+    ws.onmessage = (m) => {
+      const t = JSON.parse(m.data).result.targetInfos.find((t) => t.type === 'page' && t.url.startsWith('http://fakeig'));
+      console.log(JSON.stringify(t ? t.attached : null));
+      process.exit(0);
+    };
+  });`;
+  try {
+    return JSON.parse(dc('exec', '-T', 'app', 'node', '-e', js).trim()) as boolean | null;
+  } catch {
+    return null;
+  }
+}
+
 const message = async (id: string) => {
   const r = await api('GET', `/api/messages/${encodeURIComponent(id)}`);
   return r.status === 200 ? r.json : null;
@@ -264,10 +283,15 @@ async function main() {
   await api('POST', '/api/ig/restart', {});
   const lo = await until('login state', async () => ((await api('GET', '/api/ig/status')).json?.state === 'login' ? true : null), 60_000);
   check(!!lo, 'logged-out Instagram is reported as "login"');
+  // Hands off while logged out: Instagram's login and its captcha can notice a debugger in the page.
+  const off = await until('tab left alone while logged out', async () => tabAttached() === false, 20_000);
+  await sleep(4000); // a few login-watch polls later: still nothing attached
+  check(!!off && tabAttached() === false, 'nothing is attached to the Instagram tab while logged out');
   await fake('/control/login', {});
   await api('POST', '/api/ig/restart', {});
   const back = await until('ready again after login', async () => ((await api('GET', '/api/ig/status')).json?.state === 'ready' ? true : null), 90_000);
   check(!!back, 'ready again after logging back in');
+  check(tabAttached() === true, 'the app attaches to the tab again once logged in');
 
   // No plaintext in the data volume.
   const dump = execFileSync('docker', ['compose', '--env-file', envFile, '-p', PROJECT, '-f', path.join(ROOT, 'docker-compose.yml'), '-f', path.join(work, 'override.yml'), 'exec', '-T', 'app', 'sh', '-c', 'cat /data/*.db* | base64 -w0'], { encoding: 'utf8', maxBuffer: 1 << 28 });
