@@ -61,3 +61,5 @@
 - Owner: like/comment failed (Instagram refuses the old REST writes). Captured Instagram Web's own like/unlike/comment
   mutations by clicking in a second tab with every such request failed inside the browser (nothing sent); added replying
   to comments (+ first replies shown). Owner added narrow permission rules (CT 120 exec/push, insta_logger edits). e2e 54.
+- Reels refresh button (fresh feed from the top). Setting "refresh the Instagram session": background tab reload every
+  1–24 h (default on, 2 h), each time randomly up to 10 min earlier or later (refreshDelay), postponed while importing.

@@ -26,6 +26,13 @@ const AWAY_FROM_INBOX_MS = 2 * 60_000;
 /** No frame at all from the message stream for this long while ready: reload the tab. */
 const STREAM_SILENCE_MS = 20 * 60_000;
 const RESNAPSHOT_DELAY_MS = 30_000;
+/** Scheduled session refresh: up to this much earlier or later than the chosen interval (random each time). */
+export const REFRESH_JITTER_MS = 10 * 60_000;
+
+/** The delay until the next scheduled refresh: the interval ± a random jitter of up to REFRESH_JITTER_MS. */
+export function refreshDelay(hours: number, random: () => number = Math.random): number {
+  return Math.max(60_000, Math.round(hours * 3600_000 + (random() * 2 - 1) * REFRESH_JITTER_MS));
+}
 /** While logged out: how often the tab and the cookie jar are looked at (from outside, see loginwatch.ts). */
 const LOGIN_POLL_MS = 3_000;
 const LOGIN_TEXT = 'Log in to Instagram on the Instagram screen';
@@ -150,6 +157,7 @@ export class IgService implements IgController {
     if (!this.ctx.config.igEnabled || !this.ctx.repo.hasOwner()) return;
     if (this.browser || this.connecting || this.watchTimer) return;
     this.stopped = false;
+    this.wireRefresh();
     void this.connect();
   }
 
@@ -351,8 +359,50 @@ export class IgService implements IgController {
     this.ingest.resetCaches();
   }
 
+  /* --------------------------------------------- scheduled refresh */
+
+  private refreshTimer: NodeJS.Timeout | null = null;
+  private refreshWired = false;
+
+  /** (Re)plans the background reload of the Instagram tab from the settings (off: nothing planned). */
+  private scheduleRefresh(): void {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
+    const s = this.ctx.settings.get();
+    if (this.stopped || !s.sessionRefresh) return;
+    const delay = refreshDelay(s.sessionRefreshHours);
+    this.refreshTimer = setTimeout(() => void this.refreshNow(), delay);
+    this.refreshTimer.unref();
+    this.ctx.log.info({ inMinutes: Math.round(delay / 60_000) }, 'next Instagram session refresh planned');
+  }
+
+  /** Reloads the tab like a person coming back to it; waits while importing or logged out. */
+  private async refreshNow(): Promise<void> {
+    const tab = this.tab;
+    if (!tab || this.state !== 'ready') {
+      // Busy (history import) or not connected: try again in a few minutes.
+      this.refreshTimer = setTimeout(() => void this.refreshNow(), 5 * 60_000);
+      this.refreshTimer.unref();
+      return;
+    }
+    const gen = this.generation;
+    this.ctx.log.info('refreshing the Instagram session (scheduled tab reload)');
+    tab.lastFrameAt = Date.now();
+    await tab.page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => undefined);
+    void this.reconcile(gen);
+    this.scheduleRefresh();
+  }
+
+  private wireRefresh(): void {
+    if (this.refreshWired) return;
+    this.refreshWired = true;
+    this.ctx.settings.onChange(() => this.scheduleRefresh());
+    this.scheduleRefresh();
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.media.stop();
     await this.teardown();

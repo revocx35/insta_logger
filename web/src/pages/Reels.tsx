@@ -48,6 +48,14 @@ export function ReelsPage() {
     if (connected && !reels.length && !busy.current) void load(null);
   }, [connected, reels.length, load]);
 
+  const scroller = useRef<HTMLDivElement>(null);
+  const refresh = () => {
+    scroller.current?.scrollTo({ top: 0 });
+    setActive(0);
+    setDone(false);
+    void load(null);
+  };
+
   // Near the end: fetch the next page.
   useEffect(() => {
     if (next && !done && active >= reels.length - 3) void load(next);
@@ -65,7 +73,10 @@ export function ReelsPage() {
 
   return (
     <div className="reels-page">
-      <div className="reels-scroller">
+      <button className="reels-refresh" onClick={refresh} disabled={loading} title="Load a fresh reels feed" aria-label="Refresh feed">
+        {loading ? <Spinner size={18} /> : <Icon name="refresh" size={20} />}
+      </button>
+      <div className="reels-scroller" ref={scroller}>
         {reels.map((r, i) => (
           <Reel
             key={r.id}

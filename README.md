@@ -331,7 +331,7 @@ From now on every new direct message is logged; the newest `HISTORY_PER_CHAT` me
 | **Search** | Full-text search over decrypted messages and shared posts |
 | **Reels** | Instagram's reels feed, played through the server (Instagram only sees the server). Like (also double-click), read comments, comment and reply; **Send** shares a reel into your chats as its link |
 | **Instagram** | Live view of the background Instagram tab (view-only toggle, reload, log out) — log in here when needed |
-| **Settings** | Password, 2FA, recovery key, sessions, logging options, security log, wipe data |
+| **Settings** | Password, 2FA, recovery key, sessions, logging options, background session refresh (every N hours ± up to 10 min, random), security log, wipe data |
 
 Unsent messages have a **red frame** and the time they were unsent. Edited messages show an **Edited** link with the
 edit history. Media that could not be downloaded shows the reason and a **Retry** button.

@@ -332,6 +332,29 @@ function LoggingSection() {
         </label>
       </div>
       <p className="muted small">View-once photos and videos are never logged. The history import pauses between requests to Instagram, so a big inbox takes a while.</p>
+      <label className="check">
+        <input type="checkbox" checked={s.sessionRefresh} onChange={(e) => save({ sessionRefresh: e.target.checked })} /> Refresh the Instagram session in the background regularly
+      </label>
+      <div className="form narrow">
+        <label>
+          Every (hours)
+          <input
+            type="number"
+            min={1}
+            max={24}
+            disabled={!s.sessionRefresh}
+            defaultValue={s.sessionRefreshHours}
+            onBlur={(e) => {
+              const v = Math.round(Number(e.target.value));
+              if (v >= 1 && v <= 24 && v !== s.sessionRefreshHours) save({ sessionRefreshHours: v });
+            }}
+          />
+        </label>
+      </div>
+      <p className="muted small">
+        Reloads the background Instagram tab like a person coming back to it. Each time is randomly up to 10 minutes earlier or later than the
+        interval, so it never happens on an exact schedule.
+      </p>
       <ErrorNote error={a.error} />
       {a.ok ? <p className="ok-note">{a.ok}</p> : null}
     </Section>

@@ -279,6 +279,9 @@ export interface Settings {
   historyPerChat: number; // 0..2000
   /** Mark a chat as seen on Instagram ("Seen" for the sender) when it is opened here. Default false. */
   readReceipts: boolean;
+  /** Reload the Instagram tab in the background every `sessionRefreshHours` (± up to 10 minutes, random). */
+  sessionRefresh: boolean;
+  sessionRefreshHours: number; // 1..24
 }
 
 export interface AuditEntry { id: number; ts: number; event: string; ip: string | null; detail: string | null }
