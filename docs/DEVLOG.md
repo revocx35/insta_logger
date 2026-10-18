@@ -17,3 +17,12 @@
   downloaded back from the CDN before the upload bytes were stored (queue now skips them); sticky day labels overlapped
   with a transparent background.
 - Not done yet: a run with the owner's real account.
+
+## 2026-10-18 (later) — published and deployed
+
+- Public repo + GHCR images (CI green on the first push). `npm audit --omit=dev` reports high advisories in
+  puppeteer's browser-download chain (basic-ftp, extract-zip); the app only uses `puppeteer.connect` over CDP, so those
+  code paths never run. The audit step stays non-blocking; revisit when moving to puppeteer 25.
+- First deployment with the prebuilt images in an unprivileged Proxmox LXC (Ubuntu 26.04, Docker 29, `nesting=1,keyctl=1`):
+  all three containers healthy, and Chromium runs with its sandbox (zygote + sandboxed renderers, no `--no-sandbox`)
+  under the bundled seccomp profile.

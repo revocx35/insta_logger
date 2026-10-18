@@ -18,4 +18,4 @@
 - [ ] First run with the owner's real Instagram account (docs/instagram-notes.md "First live check")
 - [ ] Message requests folder in the history import (only INBOX is paged today; requests arrive live)
 - [ ] Voice message format accepted by Instagram (MP4/AAC vs Ogg/Opus) — verify live
-- [ ] Publish to GitHub + GHCR (after the owner's go-ahead)
+- [x] Publish to GitHub + GHCR (public, 2026-10-18; CI green, images public)
