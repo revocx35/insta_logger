@@ -58,3 +58,6 @@
   inbox query had a new doc id and no longer accepts the AIGM relay provider (field_exception, mailbox null); fixed ids
   and variables from the inbox page's own request, made null mailbox an error and re-run an import that found nothing.
   Reels: like/unlike (+ double-click), comments sheet with paging and posting. e2e 53 checks.
+- Owner: like/comment failed (Instagram refuses the old REST writes). Captured Instagram Web's own like/unlike/comment
+  mutations by clicking in a second tab with every such request failed inside the browser (nothing sent); added replying
+  to comments (+ first replies shown). Owner added narrow permission rules (CT 120 exec/push, insta_logger edits). e2e 54.

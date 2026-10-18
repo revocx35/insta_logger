@@ -30,6 +30,8 @@ export interface IgWebSource {
   downloader: Downloader;
   /** The logged-in account's Instagram id. */
   meId: string | null;
+  /** The logged-in account's Meta id ("actor" of likes). */
+  meFbid: string | null;
 }
 
 export interface IgController {

@@ -29,6 +29,8 @@ export class IgReels {
   private last = 0;
   /** Reels already handed out (Instagram's pagination wants them as "seen_reels"). */
   private seen: string[] = [];
+  /** Reel id → Instagram's tracking token (sent with a like, as the website does). Memory only. */
+  private readonly tokens = new Map<string, string>();
 
   constructor(
     private readonly src: () => IgWebSource | null,
@@ -69,6 +71,12 @@ export class IgReels {
       .map((e) => mapPost(obj(obj(e).node).media, this.ref))
       .filter((p): p is WebPost => !!p && p.media.some((m) => m.kind === 'video'));
     this.seen.push(...items.map((p) => p.id));
+    for (const e of arr(conn.edges)) {
+      const m = obj(obj(obj(e).node).media);
+      const id = typeof m.pk === 'string' ? m.pk : typeof m.pk === 'number' || typeof m.pk === 'bigint' ? String(m.pk) : null;
+      if (id && typeof m.organic_tracking_token === 'string' && m.organic_tracking_token.length < 2000) this.tokens.set(id, m.organic_tracking_token);
+    }
+    if (this.tokens.size > 2000) for (const k of [...this.tokens.keys()].slice(0, 1000)) this.tokens.delete(k);
     const info = obj(conn.page_info);
     return { items, next: info.has_next_page === true && typeof info.end_cursor === 'string' ? info.end_cursor : null };
   }
@@ -95,18 +103,57 @@ export class IgReels {
     };
   }
 
+  /**
+   * Likes or unlikes a reel with Instagram Web's own mutations (`usePolarisLikeMediaXIGLikeMutation` input copied
+   * from its reels page, 2026-10-18; the unlike mutation is its pair and takes the same input).
+   */
   async like(id: string, on: boolean): Promise<void> {
     if (!MEDIA_ID.test(id)) throw new IgRequestError('bad_id', 'bad id');
     const src = this.source();
-    await this.paced(() => src.rest('POST', `/api/v1/web/likes/${id}/${on ? 'like' : 'unlike'}/`, {}));
+    if (!src.meFbid) throw new IgRequestError('login', 'Instagram is not connected.');
+    const token = this.tokens.get(id);
+    const d = await this.paced(() =>
+      src.graphql<Obj>(on ? 'usePolarisLikeMediaXIGLikeMutation' : 'usePolarisLikeMediaXIGUnlikeMutation', {
+        input: { actor_id: src.meFbid, client_mutation_id: '1', container_module: 'reels_tab', media_id: id, ...(token ? { tracking_token: token } : {}) },
+      }),
+    );
+    if (!Object.values(d).some((v) => v !== null)) throw new IgRequestError('graphql', `Instagram did not accept the ${on ? 'like' : 'unlike'}.`);
   }
 
-  async comment(id: string, text: string): Promise<WebComment | null> {
+  /**
+   * Posts a comment, or a reply to [replyTo] (a comment id), with Instagram Web's comment mutation (variables copied
+   * from its post page, 2026-10-18; `connections` are its Relay store keys, sent as it sends them).
+   */
+  async comment(id: string, text: string, replyTo: string | null = null): Promise<WebComment | null> {
     if (!MEDIA_ID.test(id)) throw new IgRequestError('bad_id', 'bad id');
+    if (replyTo !== null && !MEDIA_ID.test(replyTo)) throw new IgRequestError('bad_id', 'bad id');
     const body = text.trim();
     if (!body || body.length > COMMENT_MAX) throw new IgRequestError('bad_text', 'bad text');
     const src = this.source();
-    const r = await this.paced(() => src.rest<Obj>('POST', `/api/v1/web/comments/${id}/add/`, { comment_text: body }));
-    return mapComment({ ...r, user: r.from ?? r.user }, this.ref);
+    const connections = replyTo
+      ? [`client:root:__PolarisPostComments__xdt_api__v1__media__media_id__comments__parent_comment_id__child_comments__connection_connection(media_id:"${id}",parent_comment_id:"${replyTo}")`]
+      : [`client:root:__PolarisPostComments__xdt_api__v1__media__media_id__comments__connection_connection(data:{},media_id:"${id}",sort_order:"popular")`];
+    const d = await this.paced(() =>
+      src.graphql<Obj>('PolarisPostCommentInputRevampedMutation', {
+        connections,
+        data: { comment_text: body, media_id: id, ...(replyTo ? { replied_to_comment_id: replyTo } : {}) },
+      }),
+    );
+    if (!Object.values(d).some((v) => v !== null)) throw new IgRequestError('graphql', 'Instagram did not accept the comment.');
+    return findComment(d, this.ref);
   }
+}
+
+/** The new comment somewhere in the mutation's answer (its exact path is not known), else null. */
+function findComment(root: unknown, ref: RefFn): WebComment | null {
+  let found: WebComment | null = null;
+  const walk = (v: unknown, depth: number) => {
+    if (found || depth > 8 || !v || typeof v !== 'object') return;
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
+    const o = v as Obj;
+    if (typeof o.text === 'string' && (o.pk !== undefined || o.id !== undefined) && o.user) found = mapComment(o, ref);
+    for (const x of Object.values(o)) walk(x, depth + 1);
+  };
+  walk(root, 0);
+  return found;
 }

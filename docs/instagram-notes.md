@@ -126,8 +126,15 @@ Uploads: multipart `farr` (+ `voice_clip=true`) to `/ajax/mercury/upload.php?<co
   `video_versions[] {url, width, height}` progressive MP4, `image_versions2.candidates[]`).
 * A reel link sent as DM text (`https://www.instagram.com/reel/<code>/`) shows as a reel card in Instagram.
 * Comments: `GET /api/v1/media/<pk>/comments/?can_support_threading=true&permalink_enabled=false[&min_id=<next_min_id>]`
-  (checked live 2026-10-18). Likes `POST /api/v1/web/likes/<pk>/like/` · `unlike/`, comment `POST
-  /api/v1/web/comments/<pk>/add/` (`comment_text`): Instagram Web's long-standing endpoints, not yet seen working live.
+  (checked live 2026-10-18); comments carry `preview_child_comments` (first replies) and `child_comment_count`.
+* The old REST writes (`/api/v1/web/likes/<pk>/like/`, `/api/v1/web/comments/<pk>/add/`) are refused now. Instagram
+  Web's own mutations (captured 2026-10-18 by clicking in a second tab with `Fetch.failRequest`, so nothing was sent):
+  `usePolarisLikeMediaXIGLikeMutation` 27182485238052618 / `usePolarisLikeMediaXIGUnlikeMutation` 27345296031770102:
+  `{input: {actor_id: <viewer Meta id, 1784…>, client_mutation_id: "1", container_module: "reels_tab", media_id,
+  tracking_token: <media.organic_tracking_token>}}`. `PolarisPostCommentInputRevampedMutation` 27261905640092552:
+  `{connections: [<Relay key>], data: {comment_text, media_id, replied_to_comment_id?}}`; a reply's text starts with
+  `@<username> ` and its connection is the parent's `child_comments` key. Comment like/unlike:
+  `usePolarisCommentLikeMutation` 25746541371686622 `{input: {actor_id, client_mutation_id, comment_id}}` (not used).
 * 2026-10-18: Instagram dropped the `PolarisAIGMAccountLabelEnabled` relay provider from the inbox and thread queries;
   with it (and the old inbox doc id) the inbox answered `{mailbox: null, errors: [1675030 field_exception]}`, which the
   first import took for an empty inbox. Now a null mailbox is an error, and an import that found no chats runs again.

@@ -11,7 +11,7 @@ tests deliver messages, push deltas, change the stored history and log the brows
 cd server && npx tsx ../scripts/dev/fake-instagram.mts 18555
 ```
 
-## fake-e2e.mts — the real stack against the fake (53 checks)
+## fake-e2e.mts — the real stack against the fake (54 checks)
 
 Builds and starts all three images in an isolated compose project (ports 29443/29080), points `IG_WEB_ORIGIN` at the
 fake, gives Chromium a test-only URL policy that also allows the fake host, and checks login detection, history import,

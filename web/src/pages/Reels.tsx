@@ -357,19 +357,59 @@ function CommentsSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
 
+  const [replyTo, setReplyTo] = useState<WebComment | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+
+  const startReply = (c: WebComment) => {
+    setReplyTo(c);
+    setText(`@${c.user.username} `);
+    input.current?.focus();
+  };
+
   const post = async () => {
     setPosting(true);
     setError(null);
     try {
-      const r = await api.reelComment(reel.id, text);
-      if (r.comment) setItems((old) => [r.comment!, ...old]);
+      const parent = replyTo;
+      const r = await api.reelComment(reel.id, text, parent?.id ?? null);
+      const mine = r.comment;
+      if (mine) {
+        if (parent) setItems((old) => old.map((c) => (c.id === parent.id ? { ...c, replyCount: c.replyCount + 1, replies: [...c.replies, mine] } : c)));
+        else setItems((old) => [mine, ...old]);
+      }
       setText('');
+      setReplyTo(null);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
       setPosting(false);
     }
   };
+
+  const line = (c: WebComment, reply: boolean) => (
+    <div key={c.id} className={reply ? 'comment reply' : 'comment'}>
+      <Avatar id={c.user.id} name={c.user.username} url={c.user.avatar} size={reply ? 24 : 32} />
+      <div className="comment-body">
+        <div>
+          <b>{c.user.username}</b> <span className="comment-text">{c.text}</span>
+        </div>
+        <small className="muted">
+          {ago(c.createdAt)}
+          {c.likeCount ? ` · ${compact(c.likeCount)} likes` : ''}
+          {' · '}
+          <button className="link-btn" onClick={() => startReply(c)}>
+            Reply
+          </button>
+        </small>
+        {!reply && c.replies.length ? <div className="comment-replies">{c.replies.map((r) => line(r, true))}</div> : null}
+        {!reply && c.replyCount > c.replies.length ? (
+          <small className="muted">
+            {c.replyCount - c.replies.length} more {c.replyCount - c.replies.length === 1 ? 'reply' : 'replies'} on Instagram
+          </small>
+        ) : null}
+      </div>
+    </div>
+  );
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -381,21 +421,7 @@ function CommentsSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }
           </button>
         </header>
         <div className="sheet-list comments-list">
-          {items.map((c) => (
-            <div key={c.id} className="comment">
-              <Avatar id={c.user.id} name={c.user.username} url={c.user.avatar} size={32} />
-              <div className="comment-body">
-                <div>
-                  <b>{c.user.username}</b> <span className="comment-text">{c.text}</span>
-                </div>
-                <small className="muted">
-                  {ago(c.createdAt)}
-                  {c.likeCount ? ` · ${compact(c.likeCount)} likes` : ''}
-                  {c.replyCount ? ` · ${c.replyCount} replies` : ''}
-                </small>
-              </div>
-            </div>
-          ))}
+          {items.map((c) => line(c, false))}
           {loading ? <Spinner /> : null}
           {!loading && !items.length && !error ? <p className="muted small">No comments yet.</p> : null}
           {!loading && next ? (
@@ -405,6 +431,21 @@ function CommentsSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }
           ) : null}
         </div>
         <ErrorNote error={error} />
+        {replyTo ? (
+          <div className="replying">
+            <span className="muted small">Replying to @{replyTo.user.username}</span>
+            <button
+              className="icon-btn small"
+              aria-label="Cancel reply"
+              onClick={() => {
+                setReplyTo(null);
+                setText('');
+              }}
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+        ) : null}
         <form
           className="sheet-foot comment-form"
           onSubmit={(e) => {
@@ -412,7 +453,13 @@ function CommentsSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }
             if (text.trim() && !posting) void post();
           }}
         >
-          <input placeholder="Add a comment…" value={text} onChange={(e) => setText(e.target.value)} maxLength={2200} />
+          <input
+            ref={input}
+            placeholder={replyTo ? `Reply to @${replyTo.user.username}…` : 'Add a comment…'}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={2200}
+          />
           <button className="btn primary" disabled={!text.trim() || posting}>
             {posting ? <Spinner size={18} /> : 'Post'}
           </button>

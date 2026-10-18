@@ -1663,6 +1663,26 @@ button.reel-action:disabled {
   font-size: 0.9em;
   line-height: 1.35;
 }
+.comment-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.comment.reply .comment-body {
+  font-size: 0.95em;
+}
+.comment-body .link-btn {
+  font-size: inherit;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.replying {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px 0;
+}
 .comment-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

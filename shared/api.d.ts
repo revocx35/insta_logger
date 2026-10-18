@@ -330,6 +330,8 @@ export interface WebComment {
   createdAt: number;
   likeCount: number;
   replyCount: number;
+  /** The first replies Instagram sends along (all of them only when there are few). */
+  replies: WebComment[];
 }
 
 export interface WebPage<T> {

@@ -179,8 +179,10 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   replaces every CDN link with an opaque ref (`MediaRefs`, memory only, 6 h), fetches it through the browser on request
   (`GET /api/reels/media/:ref`, ≤ 40 MB, 128 MB in-memory cache, Range support, `sandbox` CSP). Nothing of it is stored
   or logged. "Send" posts the reel's link (`https://www.instagram.com/reel/<code>/`) through the normal send route;
-  Instagram shows it as a reel card. Comments, likes and new comments use Instagram Web's REST endpoints
-  (`IgPage.rest`: `/api/v1/media/<id>/comments/`, `/api/v1/web/likes/<id>/like|unlike/`, `/api/v1/web/comments/<id>/add/`).
+  Instagram shows it as a reel card. Comments are read over REST (`IgPage.rest`: `/api/v1/media/<id>/comments/`,
+  with the first replies); likes, unlikes, comments and replies use Instagram Web's own mutations
+  (`usePolarisLikeMediaXIGLike/UnlikeMutation`, `PolarisPostCommentInputRevampedMutation`), variables captured from
+  its pages with the requests stopped inside the browser (docs/instagram-notes.md "Reels").
   Nothing of the reels is written to the database.
 * **Logging in with the owner's own browser** (`ig/cookies.ts`, `POST /api/ig/session`). When Instagram's login keeps
   looping on its captcha (first real login, 2026-10-18), the owner logs in on their own computer and pastes DevTools'
@@ -421,7 +423,7 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
 * `web`: vitest for `igText` (links, mentions, injection attempts, hostile input speed), typecheck, production build.
 * `scripts/smoke.sh` (23 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
   page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox.
-* `scripts/dev/fake-e2e.mts` (53 checks; reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, share as link): all three real images and real Chromium against `fake-instagram.mts` —
+* `scripts/dev/fake-e2e.mts` (54 checks; reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
   login detection and re-login (nothing attached to the tab while logged out; logging in with a session pasted as
   "Copy as cURL", refused while logged in, never in the logs or DB), history import (3 chats, paging, history photo), live stream message, unsend kept,
   edit history, reaction, live photo downloaded through the browser, sending (text+reply, react/unreact, edit, unsend

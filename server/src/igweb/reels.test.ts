@@ -90,6 +90,7 @@ describe('IgReels', () => {
     const calls: { name: string; vars: Record<string, unknown> }[] = [];
     const src: IgWebSource = {
       meId: '1',
+      meFbid: '9',
       rest: async () => { throw new Error('unused'); },
       downloader: { fetch: async () => ({ status: 'error', reason: 'x' }) },
       graphql: async <T>(name: string, vars: unknown) => {
@@ -120,36 +121,57 @@ describe('IgReels', () => {
 });
 
 describe('IgReels likes and comments', () => {
-  it('uses Instagram Web REST endpoints and maps comments', async () => {
-    const calls: [string, string, Record<string, string> | null | undefined][] = [];
+  it('reads comments over REST, likes/unlikes/comments/replies with Instagram Web mutations', async () => {
+    const MEDIA = '4008597565992995700';
+    const rests: string[] = [];
+    const gqls: { name: string; vars: Record<string, unknown> }[] = [];
     const src: IgWebSource = {
       meId: '1',
+      meFbid: '17841400000000099',
       downloader: { fetch: async () => ({ status: 'error', reason: 'x' }) },
-      graphql: async () => ({}) as never,
-      rest: async <T>(method: 'GET' | 'POST', path: string, form?: Record<string, string> | null) => {
-        calls.push([method, path, form]);
-        if (path.includes('/comments/?')) return { comments: [{ pk: '18062166269531234', text: 'wow', created_at: 1792090941, comment_like_count: 3, user }], has_more_headload_comments: true, next_min_id: 'NEXT' } as T;
-        if (path.includes('/add/')) return { id: '18000000000000001', text: 'nice!', created_at: 1792090999, from: user, status: 'ok' } as T;
-        return { status: 'ok' } as T;
+      graphql: async <T>(name: string, vars: unknown) => {
+        gqls.push({ name, vars: vars as Record<string, unknown> });
+        if (name === 'PolarisPostCommentInputRevampedMutation')
+          return { xdt_api__v1__media__media_id__comment: { pk: '18000000000000001', text: (vars as { data: { comment_text: string } }).data.comment_text, created_at: 1792090999, user } } as T;
+        return { xdt_mark_media_like: { success: true } } as T;
+      },
+      rest: async <T>(method: 'GET' | 'POST', path: string) => {
+        rests.push(`${method} ${path.split('?')[0]}`);
+        return {
+          comments: [{ pk: '18062166269531234', text: 'wow', created_at: 1792090941, comment_like_count: 3, child_comment_count: 1, user, preview_child_comments: [{ pk: '18062166269531299', text: '@natgeo yes', created_at: 1792090950, user }] }],
+          has_more_headload_comments: true,
+          next_min_id: 'NEXT',
+        } as T;
       },
     };
     const refs = new MediaRefs();
     const r = new IgReels(() => src, (u) => refs.ref(u));
-    const page = await r.comments('4008597565992995700', null);
-    expect(page.items[0]).toMatchObject({ id: '18062166269531234', text: 'wow', likeCount: 3, user: { username: 'natgeo' } });
+    const page = await r.comments(MEDIA, null);
+    expect(page.items[0]).toMatchObject({ id: '18062166269531234', text: 'wow', likeCount: 3, replyCount: 1, user: { username: 'natgeo' } });
+    expect(page.items[0]!.replies.map((x) => x.text)).toEqual(['@natgeo yes']);
     expect(page.next).toBe('NEXT');
-    await r.like('4008597565992995700', true);
-    await r.like('4008597565992995700', false);
-    const c = await r.comment('4008597565992995700', '  nice!  ');
+    expect(rests).toEqual([`GET /api/v1/media/${MEDIA}/comments/`]);
+
+    await r.like(MEDIA, true);
+    await r.like(MEDIA, false);
+    expect(gqls.map((g) => g.name)).toEqual(['usePolarisLikeMediaXIGLikeMutation', 'usePolarisLikeMediaXIGUnlikeMutation']);
+    expect(gqls[0]!.vars).toEqual({ input: { actor_id: '17841400000000099', client_mutation_id: '1', container_module: 'reels_tab', media_id: MEDIA } });
+
+    const c = await r.comment(MEDIA, '  nice!  ');
     expect(c).toMatchObject({ id: '18000000000000001', text: 'nice!' });
-    expect(calls.map((x) => `${x[0]} ${x[1].split('?')[0]}`)).toEqual([
-      'GET /api/v1/media/4008597565992995700/comments/',
-      'POST /api/v1/web/likes/4008597565992995700/like/',
-      'POST /api/v1/web/likes/4008597565992995700/unlike/',
-      'POST /api/v1/web/comments/4008597565992995700/add/',
-    ]);
-    expect(calls[3]![2]).toEqual({ comment_text: 'nice!' });
+    expect(gqls[2]!.vars.data).toEqual({ comment_text: 'nice!', media_id: MEDIA });
+    await r.comment(MEDIA, '@natgeo thanks', '18062166269531234');
+    expect(gqls[3]!.vars.data).toEqual({ comment_text: '@natgeo thanks', media_id: MEDIA, replied_to_comment_id: '18062166269531234' });
+    expect(String((gqls[3]!.vars.connections as string[])[0])).toContain('parent_comment_id:"18062166269531234"');
+
     await expect(r.like('../x', true)).rejects.toThrow();
     await expect(r.comment('1', ' ')).rejects.toThrow();
+    await expect(r.comment(MEDIA, 'x', 'not-an-id')).rejects.toThrow();
+  });
+
+  it('reports a refused like (all-null answer)', async () => {
+    const src: IgWebSource = { meId: '1', meFbid: '9', downloader: { fetch: async () => ({ status: 'error', reason: 'x' }) }, graphql: async <T>() => ({ xdt_mark_media_like: null }) as T, rest: async () => ({}) as never };
+    const r = new IgReels(() => src, () => null);
+    await expect(r.like('1', true)).rejects.toThrow(/did not accept/);
   });
 });

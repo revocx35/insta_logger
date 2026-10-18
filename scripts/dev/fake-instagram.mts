@@ -224,6 +224,24 @@ async function graphql(req: http.IncomingMessage, res: http.ServerResponse): Pro
         },
       });
     }
+    case 'usePolarisLikeMediaXIGLikeMutation':
+    case 'usePolarisLikeMediaXIGUnlikeMutation': {
+      const input = (vars.input ?? {}) as Record<string, unknown>;
+      log.push({ kind: 'reel_like', ok: headersOk && !!input.actor_id, detail: { id: input.media_id, action: name.endsWith('UnlikeMutation') ? 'unlike' : 'like' } });
+      return gql(res, { xdt_mark_media_like: { success: true } });
+    }
+    case 'PolarisPostCommentInputRevampedMutation': {
+      const data = (vars.data ?? {}) as Record<string, unknown>;
+      log.push({ kind: 'reel_comment', ok: headersOk && Array.isArray(vars.connections), detail: { id: data.media_id, text: data.comment_text, replyTo: data.replied_to_comment_id ?? null } });
+      return gql(res, {
+        xdt_api__v1__media__media_id__comment: {
+          pk: String(17000000000000099n + BigInt(++counter)),
+          text: data.comment_text,
+          created_at: Math.floor(Date.now() / 1000),
+          user: { pk: ME_IG, username: 'owner.account', full_name: 'Owner Person' },
+        },
+      });
+    }
     case 'IGDirectTextSendMutation': {
       const chatId = String(vars.ig_thread_igid);
       const text = (vars.text as { sensitive_string_value: string }).sensitive_string_value;

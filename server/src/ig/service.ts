@@ -333,6 +333,7 @@ export class IgService implements IgController {
       rest: (method, path, form) => tab.rest(method, path, form ?? null),
       downloader: tab.downloader,
       meId: this.meIds.igId,
+      meFbid: [...this.meIds.fbids][0] ?? null,
     };
   }
 

@@ -56,9 +56,12 @@ export function registerReelsRoutes(app: FastifyInstance, ctx: AppContext): void
 
   app.post('/api/reels/:id/comments', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
     const { id } = idParam.parse(req.params);
-    const { text } = z.object({ text: z.string().trim().min(1).max(COMMENT_MAX) }).strict().parse(req.body);
-    const comment: WebComment | null = await call(() => reels.comment(id, text));
-    ctx.repo.audit('reel_commented', req.ip);
+    const { text, replyTo } = z
+      .object({ text: z.string().trim().min(1).max(COMMENT_MAX), replyTo: z.string().regex(MEDIA_ID).optional() })
+      .strict()
+      .parse(req.body);
+    const comment: WebComment | null = await call(() => reels.comment(id, text, replyTo ?? null));
+    ctx.repo.audit(replyTo ? 'reel_comment_replied' : 'reel_commented', req.ip);
     return { comment };
   });
 

@@ -283,8 +283,16 @@ async function main() {
   check((await api('POST', `/api/reels/${reelId}/like`, { like: true })).status === 200 && (await api('POST', `/api/reels/${reelId}/like`, { like: false })).status === 200, 'like and unlike a reel');
   const posted = await api('POST', `/api/reels/${reelId}/comments`, { text: 'great reel' });
   check(posted.status === 200 && posted.json?.comment?.text === 'great reel', 'comment on a reel');
+  const replied = await api('POST', `/api/reels/${reelId}/comments`, { text: '@commenter agreed', replyTo: cm!.items[0].id });
+  check(replied.status === 200 && replied.json?.comment?.text === '@commenter agreed', 'reply to a comment');
   const rl = (await fakeLog()).log;
-  check(rl.some((e) => e.kind === 'reel_like' && e.ok && e.detail?.action === 'like') && rl.some((e) => e.kind === 'reel_like' && e.detail?.action === 'unlike') && rl.some((e) => e.kind === 'reel_comment' && e.ok && e.detail?.text === 'great reel'), 'likes and comments reached Instagram with the CSRF token');
+  check(
+    rl.some((e) => e.kind === 'reel_like' && e.ok && e.detail?.action === 'like') &&
+      rl.some((e) => e.kind === 'reel_like' && e.ok && e.detail?.action === 'unlike') &&
+      rl.some((e) => e.kind === 'reel_comment' && e.ok && e.detail?.text === 'great reel' && e.detail?.replyTo === null) &&
+      rl.some((e) => e.kind === 'reel_comment' && e.ok && e.detail?.replyTo === cm!.items[0].id),
+    'like, unlike, comment and reply reached Instagram as its own mutations',
+  );
   const share = await api('POST', `/api/chats/${CHAT}/send`, { text: `https://www.instagram.com/reel/${r1!.items[0].code}/` });
   check(share.status === 200 && (await fakeLog()).log.some((e) => e.kind === 'sent_text' && e.detail?.text === 'https://www.instagram.com/reel/FAKEREEL1/'), 'a reel is shared into a chat as its link');
 

@@ -103,5 +103,8 @@ export function mapComment(raw: unknown, ref: RefFn): WebComment | null {
     createdAt: (num(c.created_at_utc) ?? num(c.created_at) ?? 0) * 1000,
     likeCount: num(c.comment_like_count) ?? 0,
     replyCount: num(c.child_comment_count) ?? 0,
+    replies: arr(c.preview_child_comments)
+      .map((r) => mapComment(r, ref))
+      .filter((r): r is WebComment => !!r),
   };
 }
