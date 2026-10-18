@@ -6,6 +6,9 @@
     "facebook.com",
     "fbcdn.net",
     "fbsbx.com",
+    "www.google.com/recaptcha/",
+    "www.gstatic.com/recaptcha/",
+    "www.recaptcha.net/recaptcha/",
     "about:blank",
     "blob:*",
     "data:*"

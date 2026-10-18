@@ -102,7 +102,10 @@ Out of scope on purpose: calls, multiple accounts or tenants, starting new chats
 * The healthcheck calls `curl -fs http://127.0.0.1:9222/json/version`.
 * The profile volume **contains the live Instagram login** (cookies). Anyone with it can use the account.
 * Managed policy (`chromium/policies.json`): navigation only to `instagram.com`, `cdninstagram.com`, `facebook.com`,
-  `fbcdn.net`, `fbsbx.com` (login, 2FA and consent pages and media need them); no downloads, file pickers, printing,
+  `fbcdn.net`, `fbsbx.com` (login, 2FA and consent pages and media need them), plus only the reCAPTCHA paths
+  `www.google.com/recaptcha/`, `www.gstatic.com/recaptcha/`, `www.recaptcha.net/recaptcha/` (Instagram's login captcha
+  is reCAPTCHA Enterprise in a `www.fbsbx.com/captcha/recaptcha/iframe/` frame; blocked, it shows only a grey icon);
+  no downloads, file pickers, printing,
   password manager, sign-in, sync, extensions, notifications, geolocation, camera or microphone.
 
 ## 4. App (server) — `server/`

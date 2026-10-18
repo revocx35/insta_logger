@@ -11,6 +11,9 @@ without an account. When Instagram changes something, update this file with the 
   messages "Seen"); `/accounts/login/` the login page (redirects to `/` when already logged in); `/challenge/…`,
   `/two_factor…`, `/auth_platform/…`, `/consent/…`, `/accounts/suspended/` are checks the owner answers;
   `/accounts/onetap/` ("save your login info?") comes after a successful login.
+* Suspicious logins get `/auth_platform/recaptcha/`: a `www.fbsbx.com/captcha/recaptcha/iframe/` frame that embeds
+  Google reCAPTCHA Enterprise (`www.google.com/recaptcha/enterprise/…` frames, `www.gstatic.com/recaptcha/` script).
+  The URL policy allows those paths only (seen on the first real login, 2026-10-18).
 * The login page loads from `www.instagram.com`, `static.cdninstagram.com` and `www.facebook.com` (checked in the
   container's Chromium, 2026-10-18; it renders fully with the URL policy). Login cookies: `sessionid` (HttpOnly),
   `ds_user_id` (Instagram user id), `csrftoken`.

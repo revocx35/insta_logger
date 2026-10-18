@@ -26,3 +26,6 @@
 - First deployment with the prebuilt images in an unprivileged Proxmox LXC (Ubuntu 26.04, Docker 29, `nesting=1,keyctl=1`):
   all three containers healthy, and Chromium runs with its sandbox (zygote + sandboxed renderers, no `--no-sandbox`)
   under the bundled seccomp profile.
+- First real login hit Instagram's captcha page (`/auth_platform/recaptcha/`). Its reCAPTCHA frame
+  (`www.google.com/recaptcha/enterprise/…`) was blocked by the URL policy and showed only a grey icon. The policy now
+  allows the reCAPTCHA paths only (`www.google.com/recaptcha/`, `www.gstatic.com/recaptcha/`, `www.recaptcha.net/recaptcha/`).
