@@ -1,0 +1,311 @@
+import http from 'node:http';
+import net from 'node:net';
+import type { AddressInfo } from 'node:net';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import WebSocket from 'ws';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ChatSummary, DeletedFeedPage, MediaFeedPage, MessagePage, SearchResponse } from '../../../shared/api.js';
+import { ORIGIN, PASSWORD, makeHarness, type Harness, type TestClient } from '../testutil/harness.js';
+import { Ingest } from '../ig/ingest.js';
+import { beginMediaFile, finishMediaFile } from '../ig/media.js';
+import { ALI, AYSE, CHAT, FakeIg, ME, ME_IG, OTHER, at, delta, mid, textMsg } from '../testutil/igfixtures.js';
+import { inlineContentType, safeFilename } from './media.js';
+
+async function seedMedia(h: Harness, data: Buffer, mime: string, filename: string | null): Promise<number> {
+  const f = await beginMediaFile(h.ctx);
+  await f.writer.write(data);
+  return (await finishMediaFile(h.ctx, f, 'message', mime, filename)).mediaId;
+}
+
+describe('api', () => {
+  let h: Harness;
+  let c: TestClient;
+  let ingest: Ingest;
+
+  beforeEach(async () => {
+    h = await makeHarness();
+    c = h.client();
+    await c.signup();
+    const ig = new FakeIg().add(CHAT, [ME, ALI], []).add(OTHER, [ME, AYSE], [], { title: 'Other Person' });
+    ingest = new Ingest(h.ctx, ig, { enqueue: () => undefined }, () => ({ fbids: new Set([ME]), igId: ME_IG }));
+    for (let i = 1; i <= 75; i++) await ingest.message(textMsg(mid(i), `message number ${i}`, at(i)), 'live');
+    await ingest.message(textMsg(mid(100), 'this is a reply', at(100), { reply: { id: mid(3), message: textMsg(mid(3), 'message number 3', at(3)) } }), 'live');
+    await ingest.message(textMsg('O1', 'hello from the other chat about pineapples', at(200), { chat: OTHER, sender: AYSE }), 'live');
+    await ingest.delta(delta('SlideUQPPDeleteMessage', CHAT, { message_id: mid(10) }));
+    await ingest.delta(delta('SlideUQPPEditMessage', CHAT, { message_id: mid(20), text_body: 'edited twenty', slide_edit_history_entry: { timestamp_ms: String(at(21)) } }));
+  });
+  afterEach(async () => {
+    await h.close();
+  });
+
+  it('lists chats with decrypted names, counts and previews', async () => {
+    const r = await c.req('GET', '/api/chats');
+    expect(r.status).toBe(200);
+    const chats = r.body as ChatSummary[];
+    expect(chats.map((x) => x.name)).toEqual(['Other Person', 'Ali Veli']);
+    const ali = chats.find((x) => x.id === CHAT)!;
+    expect(ali.messageCount).toBe(76);
+    expect(ali.deletedCount).toBe(1);
+    expect(ali.lastMessage?.text).toBe('this is a reply');
+    expect(ali.kind).toBe('user');
+  });
+
+  it('pages messages newest-first with cursors', async () => {
+    const p1 = (await c.req('GET', `/api/chats/${CHAT}/messages?limit=30`)).body as MessagePage;
+    expect(p1.messages).toHaveLength(30);
+    expect(p1.messages.at(-1)!.text).toBe('this is a reply');
+    expect(p1.nextBefore).toBeTruthy();
+    const p2 = (await c.req('GET', `/api/chats/${CHAT}/messages?limit=30&before=${p1.nextBefore}`)).body as MessagePage;
+    expect(p2.messages.at(-1)!.ts).toBeLessThan(p1.messages[0]!.ts);
+    const p3 = (await c.req('GET', `/api/chats/${CHAT}/messages?limit=30&before=${p2.nextBefore}`)).body as MessagePage;
+    expect(p3.messages).toHaveLength(16);
+    expect(p3.nextBefore).toBeNull();
+    const all = [...p3.messages, ...p2.messages, ...p1.messages];
+    expect(new Set(all.map((m) => m.id)).size).toBe(76);
+  });
+
+  it('exposes deleted, edited and quoted state on messages', async () => {
+    const around = (await c.req('GET', `/api/chats/${CHAT}/messages/around/${encodeURIComponent(mid(10))}?limit=10`)).body as MessagePage;
+    const del = around.messages.find((m) => m.id === mid(10))!;
+    expect(del.deletedAt).toBeGreaterThan(0);
+    expect(del.text).toBe('message number 10');
+    expect(around.nextBefore).toBeTruthy();
+    expect(around.nextAfter).toBeTruthy();
+
+    const edited = (await c.req('GET', `/api/messages/${encodeURIComponent(mid(20))}`)).body;
+    expect(edited.text).toBe('edited twenty');
+    expect(edited.edited).toBe(true);
+    expect(edited.editCount).toBe(1);
+    const edits = (await c.req('GET', `/api/messages/${encodeURIComponent(mid(20))}/edits`)).body;
+    expect(edits).toEqual([{ body: 'message number 20', capturedAt: expect.any(Number) }]);
+
+    const reply = (await c.req('GET', `/api/messages/${encodeURIComponent(mid(100))}`)).body;
+    expect(reply.quoted).toMatchObject({ id: mid(3), text: 'message number 3', senderName: 'Ali Veli' });
+  });
+
+  it('serves the deleted-messages feed', async () => {
+    const r = (await c.req('GET', '/api/deleted')).body as DeletedFeedPage;
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]!.chat.name).toBe('Ali Veli');
+    expect(r.items[0]!.message.text).toBe('message number 10');
+  });
+
+  it('serves newly downloaded media as a feed with a cursor', async () => {
+    const start = (await c.req('GET', '/api/media-feed')).body as MediaFeedPage;
+    expect(start).toEqual({ items: [], cursor: '0', more: false });
+    const ids = [mid(5), 'O1', mid(6)];
+    for (const id of ids) {
+      const mediaId = await seedMedia(h, Buffer.from('x'), 'image/jpeg', null);
+      h.ctx.repo.updateMessage(id, { type: 'image', media_id: mediaId, media_status: 'downloaded', expires_at: id === 'O1' ? at(5000) : null });
+    }
+    let r = (await c.req('GET', `/api/media-feed?after=${start.cursor}&limit=2`)).body as MediaFeedPage;
+    expect(r.items.map((x) => x.message.id)).toEqual(ids.slice(0, 2));
+    expect(r.items[0]!.chat.name).toBe('Ali Veli');
+    expect(r.items[0]!.message.media?.url).toMatch(/^\/api\/media\/\d+$/);
+    expect(r.items.map((x) => x.message.expiresAt)).toEqual([null, at(5000)]);
+    expect(r.more).toBe(true);
+    r = (await c.req('GET', `/api/media-feed?after=${r.cursor}`)).body as MediaFeedPage;
+    expect(r.items.map((x) => x.message.id)).toEqual(ids.slice(2));
+    expect(r.more).toBe(false);
+    const end = r.cursor;
+    expect(((await c.req('GET', `/api/media-feed?after=${end}`)).body as MediaFeedPage)).toEqual({ items: [], cursor: end, more: false });
+    // A cursor from before a data wipe restarts at the current end instead of waiting forever.
+    expect(((await c.req('GET', '/api/media-feed?after=999999')).body as MediaFeedPage).cursor).toBe(end);
+    expect((await c.req('GET', '/api/media-feed?after=-1')).status).toBe(400);
+  });
+
+  it('downloads several media files as one ZIP (checked by an independent unzip)', async () => {
+    const a = Buffer.from(Array.from({ length: 150_000 }, (_, i) => (i * 7) & 255));
+    const b = Buffer.from('second file');
+    const ma = await seedMedia(h, a, 'image/jpeg', null);
+    const mb = await seedMedia(h, b, 'video/mp4', 'clip.mp4');
+    const mc = await seedMedia(h, b, 'image/jpeg', null);
+    h.ctx.repo.updateMessage(mid(1), { type: 'image', media_id: ma, media_status: 'downloaded' });
+    h.ctx.repo.updateMessage(mid(2), { type: 'video', media_id: mb, media_status: 'downloaded' });
+    h.ctx.repo.updateMessage(mid(3), { type: 'image', media_id: mc, media_status: 'downloaded', ts: h.ctx.repo.getMessage(mid(1))!.ts });
+    const r = await h.app.inject({ method: 'GET', url: `/api/media-zip?ids=${ma},${mb},${mc},${ma}`, headers: { cookie: c.cookie } });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-type']).toBe('application/zip');
+    expect(r.headers['content-disposition']).toMatch(/^attachment; filename="insta_logger-media-/);
+    expect(Number(r.headers['content-length'])).toBe(r.rawPayload.length);
+    const zipFile = path.join(h.dir, 'out.zip');
+    await fs.writeFile(zipFile, r.rawPayload);
+    const py = spawnSync('python3', ['-c', `import zipfile,sys,json
+z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None
+print(json.dumps([[i.filename, z.read(i).hex()] for i in z.infolist()]))`, zipFile], { encoding: 'utf8' });
+    expect(py.stderr).toBe('');
+    const files = JSON.parse(py.stdout) as [string, string][];
+    const stamp = new Date(h.ctx.repo.getMessage(mid(1))!.ts).toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
+    expect(files.map((f) => f[0])).toEqual([`ig_photo_${stamp}.jpg`, 'clip.mp4', `ig_photo_${stamp} (2).jpg`]);
+    expect(Buffer.from(files[0]![1], 'hex').equals(a)).toBe(true);
+    expect(Buffer.from(files[1]![1], 'hex').equals(b)).toBe(true);
+
+    expect((await h.app.inject({ method: 'GET', url: `/api/media-zip?ids=${ma},999`, headers: { cookie: c.cookie } })).statusCode).toBe(404);
+    expect((await h.app.inject({ method: 'GET', url: '/api/media-zip?ids=1;2', headers: { cookie: c.cookie } })).statusCode).toBe(400);
+    expect((await h.app.inject({ method: 'GET', url: `/api/media-zip?ids=${ma}` })).statusCode).toBe(401);
+  });
+
+  it('searches decrypted content, optionally within a chat', async () => {
+    let r = (await c.req('GET', '/api/search?q=PINEAPPLE')).body as SearchResponse;
+    expect(r.hits.map((x) => x.message.id)).toEqual(['O1']);
+    r = (await c.req('GET', `/api/search?q=pineapple&chatId=${CHAT}`)).body as SearchResponse;
+    expect(r.hits).toHaveLength(0);
+    r = (await c.req('GET', '/api/search?q=number 7')).body as SearchResponse;
+    expect(r.hits.map((x) => x.message.text).sort()).toEqual(['message number 7', 'message number 70', 'message number 71', 'message number 72', 'message number 73', 'message number 74', 'message number 75'].sort());
+    expect((await c.req('GET', '/api/search?q=a')).status).toBe(400);
+  });
+
+  it('streams media with Range support and a safe content-type policy', async () => {
+    const data = Buffer.from(Array.from({ length: 200_000 }, (_, i) => i & 255));
+    const img = await seedMedia(h, data, 'image/jpeg', 'photo.jpg');
+    let r = await h.app.inject({ method: 'GET', url: `/api/media/${img}`, headers: { cookie: c.cookie } });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-type']).toBe('image/jpeg');
+    expect(r.headers['content-disposition']).toMatch(/^inline/);
+    expect(r.headers['content-security-policy']).toMatch(/sandbox/);
+    expect(r.headers['x-content-type-options']).toBe('nosniff');
+    expect(r.rawPayload.equals(data)).toBe(true);
+
+    r = await h.app.inject({ method: 'GET', url: `/api/media/${img}`, headers: { cookie: c.cookie, range: 'bytes=70000-140000' } });
+    expect(r.statusCode).toBe(206);
+    expect(r.headers['content-range']).toBe(`bytes 70000-140000/${data.length}`);
+    expect(r.rawPayload.equals(data.subarray(70000, 140001))).toBe(true);
+
+    r = await h.app.inject({ method: 'GET', url: `/api/media/${img}`, headers: { cookie: c.cookie, range: 'bytes=-100' } });
+    expect(r.rawPayload.equals(data.subarray(data.length - 100))).toBe(true);
+
+    r = await h.app.inject({ method: 'GET', url: `/api/media/${img}`, headers: { cookie: c.cookie, range: 'bytes=999999-' } });
+    expect(r.statusCode).toBe(416);
+
+    const html = await seedMedia(h, Buffer.from('<script>alert(1)</script>'), 'text/html', '../../evil".html');
+    r = await h.app.inject({ method: 'GET', url: `/api/media/${html}`, headers: { cookie: c.cookie } });
+    expect(r.headers['content-type']).toBe('application/octet-stream');
+    expect(r.headers['content-disposition']).toMatch(/^attachment; filename="evil.html"/);
+
+    const svg = await seedMedia(h, Buffer.from('<svg onload="alert(1)"/>'), 'image/svg+xml', 'x.svg');
+    r = await h.app.inject({ method: 'GET', url: `/api/media/${svg}`, headers: { cookie: c.cookie } });
+    expect(r.headers['content-type']).toBe('application/octet-stream');
+
+    r = await h.app.inject({ method: 'GET', url: `/api/media/${img}` });
+    expect(r.statusCode).toBe(401);
+    r = await h.app.inject({ method: 'GET', url: `/api/media/99999`, headers: { cookie: c.cookie } });
+    expect(r.statusCode).toBe(404);
+  });
+
+  it('validates content types and filenames', () => {
+    expect(inlineContentType('audio/ogg; codecs=opus')).toBe('audio/ogg; codecs=opus');
+    expect(inlineContentType('video/mp4')).toBe('video/mp4');
+    expect(inlineContentType('image/svg+xml')).toBeNull();
+    expect(inlineContentType('text/html')).toBeNull();
+    expect(inlineContentType('application/pdf')).toBeNull();
+    expect(inlineContentType('audio/ogg; codecs="x"; evil=<script>')).toBe('audio/ogg; codecs="x"');
+    expect(safeFilename('../../etc/passwd', 'f')).toBe('passwd');
+    expect(safeFilename('a"b;c\r\n.txt', 'f')).toBe('abc.txt');
+    expect(safeFilename(null, 'fallback')).toBe('fallback');
+  });
+
+  it('updates settings with validation', async () => {
+    let r = await c.req('PUT', '/api/settings', { mediaMaxMb: 5 });
+    expect(r.status).toBe(200);
+    expect(r.body.mediaMaxMb).toBe(5);
+    r = await c.req('PUT', '/api/settings', { mediaMaxMb: 999999 });
+    expect(r.status).toBe(400);
+    r = await c.req('PUT', '/api/settings', { unknown: true });
+    expect(r.status).toBe(400);
+    expect((await c.req('GET', '/api/settings')).body.mediaMaxMb).toBe(5);
+  });
+
+  it('requires Instagram to be ready before completing onboarding (unless forced)', async () => {
+    expect((await c.req('POST', '/api/onboarding/complete', {})).status).toBe(409);
+    expect((await c.req('POST', '/api/onboarding/complete', { force: true })).status).toBe(200);
+    expect((await c.refreshState()).onboardingComplete).toBe(true);
+  });
+
+  it('wipes all logged data only with the password', async () => {
+    await seedMedia(h, Buffer.from('x'), 'image/png', null);
+    expect((await c.req('POST', '/api/data/wipe', { password: 'wrong-password-12' })).status).toBe(401);
+    expect((await c.req('POST', '/api/data/wipe', { password: PASSWORD })).status).toBe(200);
+    expect((await c.req('GET', '/api/chats')).body).toEqual([]);
+    expect(await fs.readdir(h.ctx.config.mediaDir)).toEqual([]);
+    expect((await c.req('GET', '/api/audit')).body.some((a: { event: string }) => a.event === 'data_wiped')).toBe(true);
+    expect((await c.refreshState()).authenticated).toBe(true);
+  });
+
+  it('streams server-sent events to authenticated clients only', async () => {
+    await h.app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (h.app.server.address() as AddressInfo).port;
+    const get = (headers: Record<string, string>) =>
+      new Promise<{ status: number; first: string; res: http.IncomingMessage }>((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port, path: '/api/events', headers }, (res) => {
+          if (res.statusCode !== 200) return resolve({ status: res.statusCode ?? 0, first: '', res });
+          let buf = '';
+          res.on('data', (d: Buffer) => {
+            buf += d.toString();
+            if (buf.includes('\n\n') && buf.includes('event:')) resolve({ status: 200, first: buf, res });
+          });
+        });
+        req.on('error', reject);
+      });
+    const anon = await get({});
+    expect(anon.status).toBe(401);
+    const ok = await get({ cookie: c.cookie });
+    expect(ok.status).toBe(200);
+    expect(ok.first).toMatch(/event: ig_state/);
+    const got = new Promise<string>((resolve) => ok.res.on('data', (d: Buffer) => resolve(d.toString())));
+    h.ctx.events.emit({ type: 'chat_update', chatId: CHAT });
+    expect(await got).toMatch(/event: chat_update/);
+    ok.res.destroy();
+  });
+
+  it('bridges VNC over an authenticated same-origin WebSocket', async () => {
+    const rfb = net.createServer((sock) => {
+      sock.write('RFB 003.008\n');
+      sock.on('data', (d) => sock.write(Buffer.concat([Buffer.from('echo:'), d])));
+    });
+    await new Promise<void>((r) => rfb.listen(0, '127.0.0.1', () => r()));
+    const vncPort = (rfb.address() as AddressInfo).port;
+    await h.close();
+    h = await makeHarness({ CHROMIUM_HOST: '127.0.0.1', VNC_PORT: String(vncPort) });
+    c = h.client();
+    await c.signup();
+    await h.app.listen({ port: 0, host: '127.0.0.1' });
+    const port = (h.app.server.address() as AddressInfo).port;
+    const url = `ws://127.0.0.1:${port}/api/vnc`;
+
+    const attempt = (headers: Record<string, string>) =>
+      new Promise<{ ok: boolean; status?: number; ws?: WebSocket; first?: Buffer }>((resolve) => {
+        const ws = new WebSocket(url, { headers });
+        ws.on('unexpected-response', (_req, res) => resolve({ ok: false, status: res.statusCode }));
+        ws.on('message', (d: Buffer) => resolve({ ok: true, ws, first: d }));
+        ws.on('error', () => resolve({ ok: false }));
+      });
+
+    expect((await attempt({ origin: ORIGIN })).status).toBe(401);
+    expect((await attempt({ origin: 'https://evil.test', cookie: c.cookie })).status).toBe(403);
+    const good = await attempt({ origin: ORIGIN, cookie: c.cookie });
+    expect(good.ok).toBe(true);
+    expect(good.first!.toString()).toBe('RFB 003.008\n');
+    const echoed = new Promise<string>((resolve) => good.ws!.once('message', (d: Buffer) => resolve(d.toString())));
+    good.ws!.send(Buffer.from('RFB 003.008\n'));
+    expect(await echoed).toBe('echo:RFB 003.008\n');
+    good.ws!.close();
+    const creds = await c.req('GET', '/api/vnc/credentials');
+    expect(creds.body).toEqual({ password: 'vnc-pass-123' });
+    rfb.close();
+  });
+
+  it('never stores plaintext message content in the database file', async () => {
+    h.ctx.repo.db.pragma('wal_checkpoint(TRUNCATE)');
+    const files = await fs.readdir(h.dir);
+    let blob = Buffer.alloc(0);
+    for (const f of files) {
+      const p = path.join(h.dir, f);
+      if ((await fs.stat(p)).isFile()) blob = Buffer.concat([blob, await fs.readFile(p)]);
+    }
+    for (const needle of ['message number', 'pineapples', 'Ali Veli', 'edited twenty']) {
+      expect(blob.includes(Buffer.from(needle)), needle).toBe(false);
+    }
+  });
+});

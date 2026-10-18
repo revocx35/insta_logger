@@ -1,0 +1,36 @@
+import type { FastifyInstance } from 'fastify';
+import type { AppState } from '../../../shared/api.js';
+import { csrfTokenFor } from '../auth/sessions.js';
+import type { AppContext } from '../context.js';
+import { Errors } from '../errors.js';
+
+export const ONBOARDING_KEY = 'onboarding_complete';
+
+export function registerStateRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get('/api/state', { config: { public: true } }, async (req) => {
+    const owner = ctx.repo.getOwner();
+    const state: AppState = {
+      hasOwner: !!owner,
+      authenticated: !!req.session,
+      onboardingComplete: ctx.repo.getState(ONBOARDING_KEY) === '1',
+    };
+    if (req.session && owner) {
+      state.csrfToken = csrfTokenFor(req.session.secret);
+      state.username = owner.username;
+      state.totpEnabled = !!owner.totp_enabled;
+      state.ig = ctx.ig.status();
+    }
+    return state;
+  });
+
+  app.post('/api/onboarding/complete', async (req) => {
+    const st = ctx.ig.status();
+    const body = (req.body ?? {}) as { force?: unknown };
+    if (st.state !== 'ready' && st.state !== 'syncing' && body.force !== true) {
+      throw Errors.conflict('Instagram is not logged in yet. Log in on the Instagram screen first.');
+    }
+    ctx.repo.setState(ONBOARDING_KEY, '1');
+    ctx.repo.audit('onboarding_complete', req.ip);
+    return { ok: true };
+  });
+}
