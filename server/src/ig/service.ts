@@ -366,7 +366,8 @@ export class IgService implements IgController {
         this.readyGen = -1;
       }
       if (this.readyGen !== gen) {
-        await this.onReady(gen, userId);
+        // Not awaited: the first history import can take long, and the checks (watchdog, tab position) must go on.
+        void this.onReady(gen, userId).catch((err) => this.ctx.log.warn({ err: (err as Error).message }, 'post-login setup failed'));
         return;
       }
       if (this.state !== 'ready' && this.state !== 'syncing') {
