@@ -28,26 +28,39 @@ export type QueryName = keyof typeof DEFAULT_DOC_IDS;
 
 const STATE_KEY = 'ig_doc_ids';
 
+/**
+ * Learned ids are stored with the default they replaced (`{id, base}`): when a newer insta_logger ships a different
+ * default, an id learned against the old default is stale and dropped (it may no longer work at all).
+ */
 export class DocIds {
-  private learned = new Map<string, string>();
+  private learned = new Map<string, { id: string; base: string | null }>();
 
   constructor(private readonly store: { get(key: string): string | undefined; set(key: string, value: string): void }) {
     try {
       const raw = store.get(STATE_KEY);
-      if (raw) for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, unknown>)) if (typeof v === 'string' && /^\d{6,24}$/.test(v)) this.learned.set(k, v);
+      if (raw) {
+        for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, unknown>)) {
+          // Old format (plain id string) carries no base: treat it as learned against an older default.
+          const e = typeof v === 'string' ? { id: v, base: null } : (v as { id?: unknown; base?: unknown });
+          if (typeof e.id !== 'string' || !/^\d{6,24}$/.test(e.id)) continue;
+          const base = typeof e.base === 'string' ? e.base : null;
+          if (base !== (DEFAULT_DOC_IDS[k] ?? null)) continue;
+          this.learned.set(k, { id: e.id, base });
+        }
+      }
     } catch {
       /* ignore a broken entry */
     }
   }
 
   get(name: string): string | null {
-    return this.learned.get(name) ?? DEFAULT_DOC_IDS[name] ?? null;
+    return this.learned.get(name)?.id ?? DEFAULT_DOC_IDS[name] ?? null;
   }
 
   /** Called with every GraphQL request the Instagram tab sends. Returns true when an id changed. */
   learn(name: string, docId: string): boolean {
     if (!(name in DEFAULT_DOC_IDS) || !/^\d{6,24}$/.test(docId) || this.get(name) === docId) return false;
-    this.learned.set(name, docId);
+    this.learned.set(name, { id: docId, base: DEFAULT_DOC_IDS[name] ?? null });
     this.store.set(STATE_KEY, JSON.stringify(Object.fromEntries(this.learned)));
     return true;
   }
