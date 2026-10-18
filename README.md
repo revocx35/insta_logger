@@ -307,6 +307,19 @@ For a home setup, the safest option is to **keep it on your LAN or VPN** (WireGu
    it in the Instagram app).
 5. When the status shows **Connected** (or **Importing history**), press **Complete**.
 
+**Instagram keeps asking for a captcha?** Instagram's login can distrust a browser it has never seen on a server and
+send it back to the captcha after every login. Then log in with your own browser instead (the panel *Captcha keeps
+coming back?* on the same page):
+
+1. On your computer, open a **private window**, go to instagram.com and log in.
+2. Press **F12** → **Network**, reload the page, right-click the first request (`www.instagram.com`) → **Copy** →
+   **Copy as cURL** (on Windows: *Copy as cURL (bash)*). A plain `Cookie:` header or a cookie-editor JSON export works too.
+3. Paste it into the panel and press **Use this login**.
+4. Close the private window **without logging out** (logging out ends that session everywhere).
+
+insta_logger keeps only Instagram's own cookies from what you paste (`sessionid`, `ds_user_id`, `csrftoken`, `mid`,
+`ig_did`, `datr`, …), puts them into its browser and never logs or stores them anywhere else.
+
 From now on every new direct message is logged; the newest `HISTORY_PER_CHAT` messages of each chat are imported too.
 
 ## Using it
@@ -374,7 +387,7 @@ docker compose down               # stop (data stays in Docker volumes)
 cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck
 cd web && npm ci && npm test && npm run build
 scripts/smoke.sh                                   # full stack in an isolated compose project (23 checks, real instagram.com login page)
-cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (39 checks: login hands-off, stream, unsend, media, sending, reconcile)
+cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (42 checks: login hands-off, pasted session, stream, unsend, media, sending, reconcile)
 ```
 
 Docs: [ARCHITECTURE.md](ARCHITECTURE.md) (design), [docs/instagram-notes.md](docs/instagram-notes.md) (Instagram Web

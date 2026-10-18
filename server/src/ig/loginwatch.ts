@@ -182,3 +182,27 @@ export async function steerTab(browserURL: string, tab: TabInfo | null, action: 
     cdp.close();
   }
 }
+
+/**
+ * Puts a session from the owner's own browser into the cookie jar (browser-level; no tab attached). Instagram's
+ * cookies live on `.instagram.com`, Secure; `sessionid` is HttpOnly. A test origin gets host-only cookies.
+ */
+export async function setSessionCookies(browserURL: string, origin: string, cookies: { name: string; value: string }[]): Promise<void> {
+  const real = /(^|\.)instagram\.com$/.test(new URL(origin).hostname);
+  const expires = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+  const cdp = await BrowserCdp.open(browserURL);
+  try {
+    await cdp.send('Storage.setCookies', {
+      cookies: cookies.map((c) => ({
+        name: c.name,
+        value: c.value,
+        path: '/',
+        expires,
+        httpOnly: c.name === 'sessionid',
+        ...(real ? { domain: '.instagram.com', secure: true } : { url: origin }),
+      })),
+    });
+  } finally {
+    cdp.close();
+  }
+}

@@ -9,7 +9,9 @@ import { DocIds } from './docs.js';
 import { Ingest, type Me } from './ingest.js';
 import { setTestMediaOrigin } from './mapper.js';
 import { MediaQueue } from './media.js';
-import { lookAtTab, nextLoginStep, steerTab, type TabLook } from './loginwatch.js';
+import { Errors } from '../errors.js';
+import type { SessionCookie } from './cookies.js';
+import { lookAtTab, nextLoginStep, setSessionCookies, steerTab, type TabLook } from './loginwatch.js';
 import { IgPage, IgRequestError } from './page.js';
 import { Sender } from './sender.js';
 import { INITIAL_SYNC_KEY, Sync } from './sync.js';
@@ -298,6 +300,29 @@ export class IgService implements IgController {
     this.readyGen = -1;
     await page.goto(`${this.ctx.config.igWebOrigin}/accounts/login/`, { waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => undefined);
     this.setState('login', 'Logged out');
+  }
+
+  /**
+   * Logs in with the session of the owner's own browser (when the login form keeps asking for a captcha): puts the
+   * cookies into the browser and opens the inbox; the login watch attaches once Instagram accepts the session.
+   */
+  async importSession(cookies: SessionCookie[]): Promise<void> {
+    if (!this.ctx.config.igEnabled) throw Errors.unavailable('Instagram is not enabled.');
+    if (this.state === 'ready' || this.state === 'syncing') throw Errors.conflict('Instagram is already logged in. Log it out first.');
+    const origin = this.ctx.config.igWebOrigin;
+    const browserURL = await resolveBrowserUrl(this.ctx.config.chromiumHost, this.ctx.config.cdpPort);
+    if (!(await cdpReachable(browserURL))) throw Errors.unavailable('The browser is not running yet. Try again in a moment.');
+    await setSessionCookies(browserURL, origin, cookies);
+    const look = await lookAtTab(browserURL, origin);
+    if (look.userId === null) throw Errors.validation('The browser did not take these cookies.');
+    await steerTab(browserURL, look.tab, { goto: `${origin}/direct/inbox/` });
+    if (!this.watchTimer && !this.browser && !this.connecting) {
+      // Not watching (e.g. waiting to reconnect after an error): connect now.
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.attempt = 0;
+      void this.connect(false);
+    }
   }
 
   retryMedia(messageId: string): boolean {

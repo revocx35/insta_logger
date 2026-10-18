@@ -46,6 +46,8 @@ function dc(...args: string[]): string {
 /* --------------------------------------------------------------- clients */
 
 let cookie = '';
+/** The session pasted in the "log in with your own browser" check: must never reach the logs or the DB. */
+let pastedSession = 'not-set';
 let csrf = '';
 async function api(method: string, url: string, body?: unknown, raw?: { data: Buffer; type: string; name: string }): Promise<{ status: number; json: any; buf: Buffer }> {
   const headers: Record<string, string> = { origin: ORIGIN };
@@ -287,6 +289,20 @@ async function main() {
   const off = await until('tab left alone while logged out', async () => tabAttached() === false, 20_000);
   await sleep(4000); // a few login-watch polls later: still nothing attached
   check(!!off && tabAttached() === false, 'nothing is attached to the Instagram tab while logged out');
+
+  // Log in with a session from another browser, pasted as DevTools' "Copy as cURL".
+  const pasted = (JSON.parse(await fake('/control/issue-session', {})) as { cookie: string }).cookie;
+  pastedSession = /sessionid=([^;]+)/.exec(pasted)![1]!;
+  const imp = await api('POST', '/api/ig/session', { cookies: `curl 'http://fakeig:${FAKE_PORT}/direct/inbox/' \\\n  -H 'accept: text/html' \\\n  -b '${pasted}'` });
+  check(imp.status === 200, `session pasted from another browser accepted (${imp.status})`);
+  const viaPaste = await until('ready with the pasted session', async () => ((await api('GET', '/api/ig/status')).json?.state === 'ready' ? true : null), 60_000);
+  check(!!viaPaste, 'ready with a session pasted from another browser');
+  check((await api('POST', '/api/ig/session', { cookies: `curl 'http://fakeig/' -b '${pasted}'` })).status === 409, 'pasting a session is refused while logged in');
+
+  // Logged out again; this time the owner logs in on the login page.
+  await fake('/control/logout', {});
+  await api('POST', '/api/ig/restart', {});
+  await until('login state again', async () => ((await api('GET', '/api/ig/status')).json?.state === 'login' ? true : null), 60_000);
   await fake('/control/login', {});
   await api('POST', '/api/ig/restart', {});
   const back = await until('ready again after login', async () => ((await api('GET', '/api/ig/status')).json?.state === 'ready' ? true : null), 90_000);
@@ -296,11 +312,11 @@ async function main() {
   // No plaintext in the data volume.
   const dump = execFileSync('docker', ['compose', '--env-file', envFile, '-p', PROJECT, '-f', path.join(ROOT, 'docker-compose.yml'), '-f', path.join(work, 'override.yml'), 'exec', '-T', 'app', 'sh', '-c', 'cat /data/*.db* | base64 -w0'], { encoding: 'utf8', maxBuffer: 1 << 28 });
   const db = Buffer.from(dump, 'base64');
-  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig'].filter((s) => db.includes(Buffer.from(s)));
+  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig', pastedSession].filter((s) => db.includes(Buffer.from(s)));
   check(leaks.length === 0, `no plaintext content, names or links in the database files${leaks.length ? ` (found: ${leaks.join(', ')})` : ''}`);
 
   const logs = dc('logs', '--no-color', 'app');
-  const logLeaks = ['a secret', 'meet at', 'Ali Veli', 'DTSG_TOKEN', 'CSRF_TOKEN', 'fake%3Asession'].filter((s) => logs.includes(s));
+  const logLeaks = ['a secret', 'meet at', 'Ali Veli', 'DTSG_TOKEN', 'CSRF_TOKEN', pastedSession].filter((s) => logs.includes(s));
   check(logLeaks.length === 0, `no content or tokens in the app logs${logLeaks.length ? ` (found: ${logLeaks.join(', ')})` : ''}`);
   void ME;
   void at;

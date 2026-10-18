@@ -15,6 +15,8 @@ Read these first, every session:
 - While Instagram is logged out or on a login/challenge page, nothing may be attached to the tab (`ig/loginwatch.ts`):
   no puppeteer Page, no CDP domains in the page or its frames. Instagram's login notices debuggers and loops on captchas.
 - Keep the browser looking normal: WebGL (Mesa llvmpipe), the server's time zone (`TZ`), no automation flags.
+- A session pasted by the owner (`POST /api/ig/session`, `ig/cookies.ts`) is a credential: never log it, never echo a
+  value in an error, never store it outside the Chromium profile.
 - GraphQL requests run inside the Instagram tab (`IgPage.graphql`); tokens stay in the page. Doc ids come from
   `ig/docs.ts` (defaults) or are learned from the tab — never hard-code them elsewhere.
 - Instagram's signed media links live only in memory (`MediaSources`). Media is fetched only from Instagram/Meta CDN
@@ -29,7 +31,7 @@ Read these first, every session:
 - Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`).
 - Web: `cd web && npm test && npm run build`.
 - Full stack from source: `scripts/smoke.sh` (23 checks). Standalone layout: `scripts/smoke.sh --deploy`.
-- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (39 checks).
+- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (42 checks).
 - UI screenshots: `scripts/dev/README.md` (`ui-shots.mts`). Sample data: `server/src/testutil/seed.ts`.
 
 ## Gotchas learned the hard way

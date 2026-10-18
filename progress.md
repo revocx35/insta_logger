@@ -11,7 +11,7 @@
 - [x] GraphQL doc ids learned from the tab; tokens stay in the page
 - [x] Login/challenge detection, tab kept on the inbox, watchdog, stream-silence reload
 - [x] Web UI: Instagram look, shares, music, albums, unsent badges, Instagram (VNC) page, settings
-- [x] Tests: 114 server unit/integration, 10 web, smoke 23 (real instagram.com login page), fake-Instagram e2e 39
+- [x] Tests: 127 server unit/integration, 10 web, smoke 23 (real instagram.com login page), fake-Instagram e2e 42
 - [x] Docs: README, ARCHITECTURE, SECURITY, AGENTS, CLAUDE, docs/instagram-notes.md
 
 ## Open

@@ -3,7 +3,7 @@
  *
  * It speaks what insta_logger reads from the real site: an inbox page with Instagram Web's page modules
  * (`require('getAsyncParams')`, `CurrentUserInitialData`, `PolarisViewer`, `IGDMqttWebDeviceID`), login cookies
- * (`sessionid`, `ds_user_id`, `csrftoken`), the message stream WebSocket at /ws/lightspeed (DGW frames → JSON envelope →
+ * (`sessionid`, `ds_user_id`, `csrftoken`; a browser is logged in only with a session the fake issued), the message stream WebSocket at /ws/lightspeed (DGW frames → JSON envelope →
  * LSResponse protobuf → Slide deltas, built with the same encoder the unit tests check against mautrix-meta's Go
  * implementation), the GraphQL queries/mutations at /api/graphql (answers prefixed with "for (;;);" like Instagram),
  * Mercury uploads, and CDN files at /cdn/*. The page itself sends one GraphQL request with a *changed* doc id so the
@@ -12,6 +12,8 @@
  *   cd server && npx tsx ../scripts/dev/fake-instagram.mts [port]
  * Control API (for the test driver, host only): GET /control/log · POST /control/deliver {chatId, message} ·
  * POST /control/delta {delta} · POST /control/store {op: add|remove, chatId, message|messageId} · POST /control/logout
+ * (ends every session; the login page stops logging in) · POST /control/login (the login page logs in again) ·
+ * POST /control/issue-session (a login made in another browser: answers its Cookie header)
  */
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -109,7 +111,10 @@ function png(seed: string): Buffer {
 
 const sockets = new Set<WebSocket>();
 const log: { kind: string; name?: string; ok?: boolean; detail?: unknown }[] = [];
+/** Whether the login page logs a browser in (as if the owner typed the password). */
 let loggedIn = true;
+/** Valid `sessionid` values: a browser is logged in when it sends one of them. */
+const sessions = new Set<string>();
 let counter = 1000;
 
 function push(...deltas: object[]): void {
@@ -136,9 +141,22 @@ async function body(req: http.IncomingMessage): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 
-function cookies(): string[] {
-  return loggedIn
-    ? [`sessionid=fake%3Asession%3A${'x'.repeat(20)}; Path=/; HttpOnly`, `ds_user_id=${ME_IG}; Path=/`, 'csrftoken=CSRF_TOKEN_x; Path=/']
+/** A new login session ("<user id>%3A<random>%3A1", like Instagram's). */
+function newSession(): string {
+  const s = `${ME_IG}%3A${crypto.randomBytes(9).toString('hex')}%3A1`;
+  sessions.add(s);
+  return s;
+}
+
+/** The request's session, when it is a valid one. */
+function sessionOf(req: http.IncomingMessage): string | null {
+  const m = /(?:^|;\s*)sessionid=([^;]+)/.exec(req.headers.cookie ?? '');
+  return m && sessions.has(m[1]!) ? m[1]! : null;
+}
+
+function cookies(session: string | null): string[] {
+  return session
+    ? [`sessionid=${session}; Path=/; HttpOnly`, `ds_user_id=${ME_IG}; Path=/`, 'csrftoken=CSRF_TOKEN_x; Path=/']
     : ['csrftoken=CSRF_TOKEN_x; Path=/', 'sessionid=; Path=/; Max-Age=0', 'ds_user_id=; Path=/; Max-Age=0'];
 }
 
@@ -155,7 +173,7 @@ async function graphql(req: http.IncomingMessage, res: http.ServerResponse): Pro
   const vars = JSON.parse(form.get('variables') ?? '{}') as Record<string, unknown>;
   const headersOk = req.headers['x-csrftoken'] === 'CSRF_TOKEN_x' && req.headers['x-fb-lsd'] === 'LSD_TOKEN_x' && form.get('fb_dtsg') === 'DTSG_TOKEN_x' && form.get('lsd') === 'LSD_TOKEN_x';
   log.push({ kind: 'graphql', name, ok: headersOk, detail: { docId: form.get('doc_id'), appId: req.headers['x-ig-app-id'] ?? null, asbd: req.headers['x-asbd-id'] ?? null } });
-  if (!loggedIn) {
+  if (!sessionOf(req)) {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end('for (;;);{"error":1357001,"errorSummary":"Not logged in"}');
     return;
@@ -249,11 +267,15 @@ const server = http.createServer((req, res) => {
         res.writeHead(200).end('ok');
       } else if (p === '/control/logout') {
         loggedIn = false;
+        sessions.clear();
         for (const s of sockets) s.close();
         res.writeHead(200).end('ok');
       } else if (p === '/control/login') {
         loggedIn = true;
         res.writeHead(200).end('ok');
+      } else if (p === '/control/issue-session') {
+        // A login made in another browser: its Cookie header, as the owner would copy it.
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ cookie: `csrftoken=CSRF_TOKEN_x; ds_user_id=${ME_IG}; sessionid=${newSession()}; mid=fakemid` }));
       } else res.writeHead(404).end();
       return;
     }
@@ -279,21 +301,23 @@ const server = http.createServer((req, res) => {
       res.end(data);
       return;
     }
+    const session = sessionOf(req);
     if (p.startsWith('/accounts/login')) {
       // Like Instagram: a logged-in browser is sent on from the login page.
-      if (loggedIn) {
-        res.writeHead(302, { location: '/', 'set-cookie': cookies() }).end();
+      const s = session ?? (loggedIn ? newSession() : null);
+      if (s) {
+        res.writeHead(302, { location: '/', 'set-cookie': cookies(s) }).end();
         return;
       }
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': cookies() });
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': cookies(null) });
       res.end(LOGIN);
       return;
     }
-    if (!loggedIn) {
+    if (!session) {
       res.writeHead(302, { location: '/accounts/login/?next=%2Fdirect%2Finbox%2F' }).end();
       return;
     }
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': cookies(), 'cache-control': 'no-store' });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': cookies(session), 'cache-control': 'no-store' });
     res.end(PAGE);
   })().catch((e) => {
     console.error(e);
@@ -303,7 +327,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, sock, head) => {
-  if (!(req.url ?? '').startsWith('/ws/lightspeed') || !loggedIn) {
+  if (!(req.url ?? '').startsWith('/ws/lightspeed') || !sessionOf(req)) {
     sock.destroy();
     return;
   }

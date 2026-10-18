@@ -519,6 +519,36 @@ label.switch {
   gap: 20px;
   min-height: 0;
 }
+.setup-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  overflow-y: auto;
+}
+.session-import {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--panel-2);
+}
+.session-import summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.session-import[open] summary {
+  margin-bottom: 10px;
+}
+.session-import .steps {
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.session-import textarea {
+  width: 100%;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.8em;
+  resize: vertical;
+}
 .steps {
   margin: 0;
   padding-left: 20px;

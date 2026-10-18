@@ -122,6 +122,7 @@ export const api = {
   igStatus: () => request<IgStatus>('GET', '/api/ig/status'),
   igRestart: () => request<{ ok: true }>('POST', '/api/ig/restart'),
   igLogout: () => request<{ ok: true }>('POST', '/api/ig/logout'),
+  igImportSession: (cookies: string) => request<{ ok: true }>('POST', '/api/ig/session', { cookies }),
   completeOnboarding: (force = false) => request<{ ok: true }>('POST', '/api/onboarding/complete', force ? { force: true } : {}),
   vncCredentials: () => request<VncCredentials>('GET', '/api/vnc/credentials'),
 

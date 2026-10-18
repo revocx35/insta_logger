@@ -8,6 +8,7 @@ import { sessionPrivateKey } from '../auth/sessions.js';
 import { PASSWORD_MAX } from '../crypto/password.js';
 import { AppError, Errors } from '../errors.js';
 import { requireSession } from '../http/server.js';
+import { parseSessionCookies, SESSION_INPUT_MAX } from '../ig/cookies.js';
 import { SettingsSchema } from '../settings.js';
 
 export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -29,6 +30,15 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
     } catch {
       throw Errors.unavailable('Instagram is not connected.');
     }
+    return { ok: true };
+  });
+
+  // Log in with the session of the owner's own browser (the pasted cookies are credentials: never logged or stored here).
+  app.post('/api/ig/session', { config: { rateLimit: { max: 10, timeWindow: '5 minutes' } } }, async (req) => {
+    const body = z.object({ cookies: z.string().max(SESSION_INPUT_MAX) }).strict().parse(req.body);
+    const cookies = parseSessionCookies(body.cookies);
+    await ctx.ig.importSession(cookies);
+    repo.audit('ig_session_imported', req.ip, `${cookies.length} cookies`);
     return { ok: true };
   });
 

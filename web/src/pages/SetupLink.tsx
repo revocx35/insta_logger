@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, errorMessage } from '../api/client';
 import { Icon } from '../components/Icon';
+import { SessionImport } from '../components/SessionImport';
 import { VncViewer } from '../components/VncViewer';
 import { ErrorNote, IgStatePill, Spinner } from '../components/ui';
 import { useAppState } from '../state/AppState';
@@ -49,18 +50,21 @@ export function SetupLinkPage() {
         <IgStatePill status={ig} />
       </header>
       <div className="setup-body">
-        <ol className="steps">
-          <li>Click into the Instagram page on the right and type your <b>username</b> and <b>password</b>.</li>
-          <li>
-            If Instagram asks for a <b>code</b> (two-factor authentication) or to confirm it was you, answer it there too — or approve the
-            login in the Instagram app on your phone.
-          </li>
-          <li>Wait until the status says <b>Connected</b> or <b>Importing history</b>, then press <b>Complete</b>.</li>
-          <li className="muted small">
-            View-once photos/videos are never logged. Everything else you send or receive from now on is saved, encrypted, even if it is
-            later unsent.
-          </li>
-        </ol>
+        <div className="setup-side">
+          <ol className="steps">
+            <li>Click into the Instagram page on the right and type your <b>username</b> and <b>password</b>.</li>
+            <li>
+              If Instagram asks for a <b>code</b> (two-factor authentication) or to confirm it was you, answer it there too — or approve the
+              login in the Instagram app on your phone.
+            </li>
+            <li>Wait until the status says <b>Connected</b> or <b>Importing history</b>, then press <b>Complete</b>.</li>
+            <li className="muted small">
+              View-once photos/videos are never logged. Everything else you send or receive from now on is saved, encrypted, even if it is
+              later unsent.
+            </li>
+          </ol>
+          {linked ? null : <SessionImport />}
+        </div>
         <VncViewer viewOnly={false} className="setup-vnc" />
       </div>
       <footer className="setup-foot">

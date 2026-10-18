@@ -173,6 +173,13 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   attached to the tab, except for single `Page.navigate`/`Page.reload` commands (open the login page from a blank or
   stray tab; reload a login page once on (re)start). It attaches again once `sessionid` + `ds_user_id` exist and the tab
   has left the login/challenge pages. The fake e2e checks `Target.getTargets().attached === false` while logged out.
+* **Logging in with the owner's own browser** (`ig/cookies.ts`, `POST /api/ig/session`). When Instagram's login keeps
+  looping on its captcha (first real login, 2026-10-18), the owner logs in on their own computer and pastes DevTools'
+  "Copy as cURL" (or a Cookie header / JSON export). Only Instagram's cookie names are kept (`sessionid` and
+  `ds_user_id` required, the session must start with that account id); values must be printable ASCII without `;`.
+  They go into the cookie jar with `Storage.setCookies` (browser-level: `.instagram.com`, Secure, `sessionid` HttpOnly),
+  the tab is sent to the inbox, and the login watch attaches once Instagram accepts the session. The pasted text is a
+  credential: never logged (errors are generic and name at most the cookie), never stored outside the Chromium profile.
 * **Logged in** = `sessionid` and `ds_user_id` cookies present for the Instagram origin (values never logged) and not on
   a login/challenge URL. The account: `CurrentUserInitialData.IG_USER_EIMU` (messaging id = sender id of own messages),
   `PolarisViewer.data` (Instagram id, username, name), `IGDMqttWebDeviceID.clientId` (needed by the inbox query);
@@ -231,7 +238,9 @@ gradient own bubbles, grey incoming), light and dark, single pane under 900 px.
 
 **Threats considered:** internet attackers reaching the login page, CSRF/XSS against the owner's browser,
 malicious message content (HTML/SVG/scripts inside messages or media), theft of disk or backups,
-lateral movement between containers, brute force, hostile data from the Instagram tab, and abuse of sending.
+lateral movement between containers, brute force, hostile data from the Instagram tab, abuse of sending, and the
+owner's pasted Instagram session (a credential: only owner-authenticated + CSRF, size-capped, whitelisted cookie
+names, never logged).
 
 **Accepted / out of scope:** a fully compromised running host (it can read process memory and the live Instagram
 login), and Instagram's terms of use (automated browser; restriction risk is the user's decision).
@@ -362,6 +371,7 @@ Migrations in `server/src/db/db.ts` (append-only). Bodies and edit history share
 | POST | /api/auth/totp/setup · enable · disable · /api/auth/recovery-key/rotate | ✓ | TOTP, recovery key |
 | GET | /api/ig/status | ✓ | `IgStatus` |
 | POST | /api/ig/restart · /api/ig/logout | ✓ | reload the tab / log the browser out of Instagram |
+| POST | /api/ig/session | ✓ | `{cookies}`: log in with a session from the owner's own browser (cURL / Cookie header / JSON); 409 when logged in |
 | POST | /api/onboarding/complete | ✓ | requires state ready/syncing |
 | GET / WS | /api/vnc/credentials · /api/vnc | ✓ | noVNC password · bridge to chromium:5900 |
 | GET | /api/chats | ✓ | `ChatSummary[]` |
@@ -400,8 +410,9 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
 * `web`: vitest for `igText` (links, mentions, injection attempts, hostile input speed), typecheck, production build.
 * `scripts/smoke.sh` (23 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
   page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox.
-* `scripts/dev/fake-e2e.mts` (39 checks): all three real images and real Chromium against `fake-instagram.mts` —
-  login detection and re-login (nothing attached to the tab while logged out), history import (3 chats, paging, history photo), live stream message, unsend kept,
+* `scripts/dev/fake-e2e.mts` (42 checks): all three real images and real Chromium against `fake-instagram.mts` —
+  login detection and re-login (nothing attached to the tab while logged out; logging in with a session pasted as
+  "Copy as cURL", refused while logged in, never in the logs or DB), history import (3 chats, paging, history photo), live stream message, unsend kept,
   edit history, reaction, live photo downloaded through the browser, sending (text+reply, react/unreact, edit, unsend
   with long thread id, photo upload with a > 2^53 attachment id, stored from the upload), tokens/headers on every
   GraphQL request, doc id learned from the page, downtime reconcile (missed message logged, unsent-while-down flagged),

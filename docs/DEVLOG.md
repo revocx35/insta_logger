@@ -44,3 +44,9 @@
   disconnects puppeteer and polls `/json/list` + browser-level `Storage.getCookies` (raw WebSocket) every 3 s; only
   single navigate/reload commands attach briefly. It attaches again once `sessionid` + `ds_user_id` exist and the tab
   left the login pages. Fake e2e (39 checks) asserts `Target.getTargets().attached === false` while logged out.
+- The loop went on with nothing attached, WebGL and the right time zone (captcha passed within seconds, login asked
+  again). Added logging in with a session from the owner's own browser: paste DevTools' "Copy as cURL" (or a Cookie
+  header / JSON export) on the Instagram screen; `ig/cookies.ts` parses it (bash quoting incl. `$'…'`, whitelisted
+  Instagram cookie names, account check), `POST /api/ig/session` puts the cookies into the browser
+  (`Storage.setCookies`) and opens the inbox. The fake Instagram now checks session cookies (sessions it issued), and
+  the e2e (42 checks) logs in with a pasted session and checks it never reaches the logs or the DB.

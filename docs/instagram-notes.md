@@ -16,6 +16,14 @@ without an account. When Instagram changes something, update this file with the 
   The URL policy allows those paths only (seen on the first real login, 2026-10-18). reCAPTCHA also needs its
   third-party cookie (`_GRECAPTCHA` on google.com): blocked, the solved captcha is rejected and the tab lands on
   `/accounts/login/` again. `CookiesAllowedForUrls` allows Google/Meta cookies under `https://www.instagram.com` only.
+* The login form sends `useCDSWebLoginMutation`; a distrusted browser gets `caa_login_web {error_code: 1348009,
+  recaptcha_needed: true, redirect_uri: /auth_platform/, ig_authenticated: false}` (Meta's "anti-scripting" check,
+  `xfb_auth_platform_anti_scripting_content`). Solving the captcha (`AuthPlatformReCaptchaSubmitCaptchaMutation` →
+  `{is_success: true, redirect_uri: /direct/inbox/}`) does not log in: the redirect (`?__coig_login=…&e=…`) lands on
+  `/accounts/login/` and the next login asks again. With no debugger attached, WebGL and a matching time zone it still
+  looped for the owner's account (2026-10-18), so the app offers logging in with a session from the owner's own
+  browser (`POST /api/ig/session`). Login cookies to carry over: `sessionid` (`<user id>%3A…`, HttpOnly),
+  `ds_user_id`, `csrftoken`, and the device cookies `mid`, `ig_did`, `datr`.
 * The login page loads from `www.instagram.com`, `static.cdninstagram.com` and `www.facebook.com` (checked in the
   container's Chromium, 2026-10-18; it renders fully with the URL policy). Login cookies: `sessionid` (HttpOnly),
   `ds_user_id` (Instagram user id), `csrftoken`.

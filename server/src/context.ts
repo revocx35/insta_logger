@@ -1,5 +1,6 @@
 import type { IgStatus, SendMediaKind, SendResult } from '../../shared/api.js';
 import type { Config } from './config.js';
+import type { SessionCookie } from './ig/cookies.js';
 import { Errors } from './errors.js';
 import { DataWriter } from './crypto/keyring.js';
 import type { Repo } from './db/repo.js';
@@ -29,6 +30,8 @@ export interface IgController {
   restart(): Promise<void>;
   /** Logs the Instagram tab out (the owner logs in again on the Instagram screen). */
   logout(): Promise<void>;
+  /** Logs in with a session (cookies) from the owner's own browser, instead of the login form. */
+  importSession(cookies: SessionCookie[]): Promise<void>;
   /** Re-queues a media download. Returns false if the message has no retryable media. */
   retryMedia(messageId: string): boolean;
   /** Called after all logged data was wiped (drop in-memory caches). */
@@ -91,6 +94,9 @@ export class NullIg implements IgController {
   async start(): Promise<void> {}
   async restart(): Promise<void> {}
   async logout(): Promise<void> {}
+  async importSession(_cookies: SessionCookie[]): Promise<void> {
+    throw Errors.unavailable('Instagram is not enabled.');
+  }
   retryMedia(): boolean {
     return false;
   }

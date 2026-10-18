@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api/client';
 import { useServerEvents } from '../api/events';
 import { Icon } from '../components/Icon';
 import { MessageBubble } from '../components/MessageBubble';
+import { SessionImport } from '../components/SessionImport';
 import { VncViewer } from '../components/VncViewer';
 import { Avatar, ConfirmButton, EmptyState, ErrorNote, IgStatePill, Spinner } from '../components/ui';
 import { formatDateTime } from '../lib/format';
@@ -238,6 +239,7 @@ export function InstagramPage() {
           {ig?.state === 'login' ? 'Instagram is logged out. Log in on the screen below.' : 'Instagram asks for a confirmation. Answer it on the screen below.'}
         </div>
       ) : null}
+      {needsLogin ? <SessionImport /> : null}
       <ErrorNote error={error} />
       <VncViewer viewOnly={viewOnly} className="ig-web-vnc" />
       <p className="muted small">
