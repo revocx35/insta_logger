@@ -81,7 +81,27 @@ export class IgClient {
   }
 
   /** The newest threads of the inbox (first page). */
+  /** Instagram Web's device id (needed by the inbox query); waits up to 10 s for it after a page load. */
+  async deviceId(): Promise<string | null> {
+    return this.page.page.evaluate(async () => {
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const W = window as any;
+      for (let i = 0; i < 40; i++) {
+        try {
+          const id = W.require('IGDMqttWebDeviceID')?.clientId;
+          if (typeof id === 'string' && id) return id;
+        } catch {
+          /* not loaded yet */
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return null;
+      /* eslint-enable @typescript-eslint/no-explicit-any */
+    });
+  }
+
   async inbox(deviceId: string | null): Promise<ThreadPage> {
+    if (!deviceId) deviceId = await this.deviceId().catch(() => null);
     const data = await this.page.graphql<{
       get_slide_mailbox_for_iris_subscription?: {
         id?: string;
