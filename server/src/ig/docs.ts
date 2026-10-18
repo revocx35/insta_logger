@@ -6,15 +6,15 @@
  */
 export const DEFAULT_DOC_IDS: Record<string, string> = {
   PolarisDirectInboxQuery: '27909866362025854',
-  IGDThreadListOffMsysPaginationQuery: '27712934271665380',
+  IGDThreadListOffMsysPaginationQuery: '28774058922187457',
   IGDThreadDetailQuery: '39768212509458705',
-  IGDMessageListOffMsysQuery: '27502152406082940',
+  IGDMessageListOffMsysQuery: '28309970012037685',
   IGDirectTextSendMutation: '26911679871773184',
   IGDirectMediaSendMutation: '25766288509716264',
   IGDirectEditMessageMutation: '32480262318254796',
   IGDMessageUnsendDialogOffMsysMutation: '26948700068153789',
   IGDirectReactionSendMutation: '24374451552236906',
-  useIGDMarkThreadAsReadMutation: '27356881703909995',
+  useIGDMarkThreadAsReadMutation: '27399783383056109',
   // The Reels section (igweb/): read from Instagram Web's own requests, 2026-10-18.
   PolarisClipsTabDesktopPaginationQuery: '28198345703199479',
 };

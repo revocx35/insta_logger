@@ -92,15 +92,15 @@ as extra JSON lines with `path`. `{"error":1357001}` = logged out, `1357004` = r
 | Query / mutation | Doc id (default) | Variables (main) | Answer |
 |---|---|---|---|
 | PolarisDirectInboxQuery | 27909866362025854 (2026-10-18; was 27262915580045003) | `device_id_for_iris_subscription` + relay providers | `get_slide_mailbox_for_iris_subscription {id, threads_by_folder, pinned_threads_v2}` |
-| IGDThreadListOffMsysPaginationQuery | 27712934271665380 | `count, cursor, folder: INBOX, id: <viewer messaging id>` | `fetch__SlideMailbox.threads_by_folder` |
+| IGDThreadListOffMsysPaginationQuery | 28774058922187457 (2026-10-18; was 27712934271665380) | `count, cursor, folder: INBOX, id: <viewer messaging id>` | `fetch__SlideMailbox.threads_by_folder` |
 | IGDThreadDetailQuery | 39768212509458705 (2026-10-18; was 37117700834487428) | `thread_fbid`, `min_uq_seq_id: null`, page count 20 | `get_slide_thread_nullable.as_ig_direct_thread` |
-| IGDMessageListOffMsysQuery | 27502152406082940 | `id, first: 20, after` or `older_than_message_id` | `fetch__SlideThread.as_ig_direct_thread.slide_messages` |
+| IGDMessageListOffMsysQuery | 28309970012037685 (2026-10-18; was 27502152406082940) | `id, first: 20, after` or `older_than_message_id` | `fetch__SlideThread.as_ig_direct_thread.slide_messages` |
 | IGDirectTextSendMutation | 26911679871773184 | `ig_thread_igid, offline_threading_id, text.sensitive_string_value, reply_to_message_id, send_attribution` | `xig_direct_text_send_with_slide_messaging_response {message_id}` |
 | IGDirectMediaSendMutation | 25766288509716264 | `attachment_fbid, thread_id, offline_threading_id, reply_to_message_id` | `xig_direct_media_send_with_slide_messaging_response` |
 | IGDirectReactionSendMutation | 24374451552236906 | `input {emoji, item_id:'', message_id, reaction_status: created/deleted, thread_id}` | |
 | IGDirectEditMessageMutation | 32480262318254796 | `thread_id, target_message_id, body.sensitive_string_value, offline_threading_id` | |
 | IGDMessageUnsendDialogOffMsysMutation | 26948700068153789 | `message_id, send_data.thread_id` (**long** thread id) | `direct_unsend_message` |
-| useIGDMarkThreadAsReadMutation | 27356881703909995 | `metadata.ig_thread_igid` (long id), `data {message_id, item_id:''}` | |
+| useIGDMarkThreadAsReadMutation | 27399783383056109 (2026-10-18; was 27356881703909995) | `metadata.ig_thread_igid` (long id), `data {message_id, item_id:''}` | |
 
 Doc ids change with Instagram Web builds; the app learns the current ones from the tab's own requests (`docs.ts`).
 

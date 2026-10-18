@@ -185,7 +185,12 @@ export class IgPage {
     if (r.status === 401) throw new IgRequestError('login', 'Instagram is logged out.');
     if (r.status >= 400) throw new IgRequestError(`http_${r.status}`, `Instagram answered ${r.status}.`);
     if (r.text === null) throw new IgRequestError('graphql', 'Answer too large.');
-    return parseGraphQL<T>(r.text);
+    try {
+      return parseGraphQL<T>(r.text);
+    } catch (e) {
+      if (e instanceof IgRequestError && e.code === 'graphql') throw new IgRequestError('graphql', `${name}: ${e.message}`);
+      throw e;
+    }
   }
 
   /**
@@ -311,7 +316,8 @@ export function parseGraphQL<T>(text: string): T {
     try {
       objs.push(parseJsonExact(t) as Record<string, unknown>);
     } catch {
-      if (objs.length === 0) throw new IgRequestError('graphql', 'Instagram sent an unreadable answer.');
+      // Say what came instead (size and the first few characters, e.g. an HTML page), never more of it.
+      if (objs.length === 0) throw new IgRequestError('graphql', `Instagram sent an unreadable answer (${text.length} bytes, starts ${JSON.stringify(t.slice(0, 12).replace(/[^\x20-\x7e]/g, '?'))}).`);
     }
   }
   const first = objs[0];
