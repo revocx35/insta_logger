@@ -1,6 +1,7 @@
 import type { IgStatus, SendMediaKind, SendResult } from '../../shared/api.js';
 import type { Config } from './config.js';
 import type { SessionCookie } from './ig/cookies.js';
+import type { Downloader } from './ig/media.js';
 import { Errors } from './errors.js';
 import { DataWriter } from './crypto/keyring.js';
 import type { Repo } from './db/repo.js';
@@ -22,6 +23,14 @@ export interface IgSender {
 }
 
 /** Control surface of the Instagram integration, used by the HTTP layer. */
+/** What the Reels section (igweb/) needs from the live Instagram tab. */
+export interface IgWebSource {
+  graphql<T>(name: string, variables: unknown): Promise<T>;
+  downloader: Downloader;
+  /** The logged-in account's Instagram id. */
+  meId: string | null;
+}
+
 export interface IgController {
   status(): IgStatus;
   /** Idempotent. Starts connecting to Chromium / Instagram. */
@@ -32,6 +41,8 @@ export interface IgController {
   logout(): Promise<void>;
   /** Logs in with a session (cookies) from the owner's own browser, instead of the login form. */
   importSession(cookies: SessionCookie[]): Promise<void>;
+  /** The live tab for the Reels section; null unless Instagram is connected and logged in. */
+  webSource(): IgWebSource | null;
   /** Re-queues a media download. Returns false if the message has no retryable media. */
   retryMedia(messageId: string): boolean;
   /** Called after all logged data was wiped (drop in-memory caches). */
@@ -94,6 +105,9 @@ export class NullIg implements IgController {
   async start(): Promise<void> {}
   async restart(): Promise<void> {}
   async logout(): Promise<void> {}
+  webSource(): IgWebSource | null {
+    return null;
+  }
   async importSession(_cookies: SessionCookie[]): Promise<void> {
     throw Errors.unavailable('Instagram is not enabled.');
   }

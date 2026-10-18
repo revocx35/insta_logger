@@ -3,6 +3,7 @@ import { registerAdminRoutes } from './api/admin.js';
 import { registerChatRoutes } from './api/chats.js';
 import { registerEventRoutes } from './api/events.js';
 import { registerMediaRoutes } from './api/media.js';
+import { registerReelsRoutes } from './api/reels.js';
 import { registerSendRoutes } from './api/send.js';
 import { registerStateRoutes } from './api/state.js';
 import { registerAuthRoutes } from './auth/routes.js';
@@ -36,6 +37,7 @@ export async function createApp(
   registerAuthRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerMediaRoutes(app, ctx);
+  registerReelsRoutes(app, ctx);
   registerSendRoutes(app, ctx);
   registerEventRoutes(app, ctx);
   registerAdminRoutes(app, ctx);

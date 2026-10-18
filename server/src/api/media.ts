@@ -41,7 +41,7 @@ function contentDisposition(kind: 'inline' | 'attachment', filename: string): st
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
-function parseRange(header: string | undefined, size: number): { start: number; end: number } | 'invalid' | null {
+export function parseRange(header: string | undefined, size: number): { start: number; end: number } | 'invalid' | null {
   if (!header) return null;
   const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
   if (!m || (m[1] === '' && m[2] === '')) return 'invalid';

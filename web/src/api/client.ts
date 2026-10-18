@@ -10,6 +10,8 @@ import type {
   RecoverResponse,
   RotateRecoveryKeyResponse,
   SearchResponse,
+  WebPage,
+  WebPost,
   SendMediaKind,
   SendResult,
   SessionInfo,
@@ -127,6 +129,7 @@ export const api = {
   vncCredentials: () => request<VncCredentials>('GET', '/api/vnc/credentials'),
 
   chats: () => request<ChatSummary[]>('GET', '/api/chats'),
+  reels: (cursor?: string | null) => request<WebPage<WebPost>>('GET', `/api/reels${cursor ? `?cursor=${enc(cursor)}` : ''}`),
   messages: (chatId: string, before?: string | null, limit = 60) =>
     request<MessagePage>('GET', `/api/chats/${enc(chatId)}/messages?limit=${limit}${before ? `&before=${enc(before)}` : ''}`),
   messagesAfter: (chatId: string, after: string, limit = 100) =>

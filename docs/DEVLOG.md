@@ -50,3 +50,7 @@
   Instagram cookie names, account check), `POST /api/ig/session` puts the cookies into the browser
   (`Storage.setCookies`) and opens the inbox. The fake Instagram now checks session cookies (sessions it issued), and
   the e2e (42 checks) logs in with a pasted session and checks it never reaches the logs or the DB.
+- Reels section (owner asked for an Instagram UI, then cut it down to reels + sending them to friends): Instagram
+  Web's reels query inside the tab, videos via opaque refs fetched through the browser, share = send the reel link.
+  Query ids/variables were read from Instagram Web's bundles and its own /reels/ requests (owner allowed it; Claude
+  Code's classifier flags this kind of work, ask before more Instagram probing). e2e 49 checks.

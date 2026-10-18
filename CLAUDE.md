@@ -31,7 +31,7 @@ Read these first, every session:
 - Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`).
 - Web: `cd web && npm test && npm run build`.
 - Full stack from source: `scripts/smoke.sh` (23 checks). Standalone layout: `scripts/smoke.sh --deploy`.
-- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (42 checks).
+- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (49 checks).
 - UI screenshots: `scripts/dev/README.md` (`ui-shots.mts`). Sample data: `server/src/testutil/seed.ts`.
 
 ## Gotchas learned the hard way

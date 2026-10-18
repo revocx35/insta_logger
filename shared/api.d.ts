@@ -284,3 +284,47 @@ export interface Settings {
 export interface AuditEntry { id: number; ts: number; event: string; ip: string | null; detail: string | null }
 
 export interface WipeRequest { password: string; totp?: string }
+
+/* ------------------------------------------------------------- Reels */
+// Instagram's reels feed, fetched live through the server's Instagram session (nothing of it is stored).
+// Media `src` / `avatar` are app URLs (/api/reels/media/<ref>), never Instagram's.
+
+export interface WebUser {
+  id: string;
+  username: string;
+  name: string | null;
+  avatar: string | null;
+  verified: boolean;
+  private: boolean;
+  /** The logged-in account follows this user (null: unknown). */
+  following: boolean | null;
+  hasStory: boolean;
+}
+
+export interface WebMedia {
+  kind: 'image' | 'video';
+  src: string;
+  poster: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface WebPost {
+  id: string;
+  code: string | null;
+  user: WebUser;
+  takenAt: number;
+  caption: string | null;
+  likeCount: number | null;
+  commentCount: number | null;
+  liked: boolean;
+  media: WebMedia[];
+  isReel: boolean;
+  location: string | null;
+}
+
+export interface WebPage<T> {
+  items: T[];
+  /** Opaque cursor for the next page, null at the end. */
+  next: string | null;
+}

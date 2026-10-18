@@ -1,6 +1,6 @@
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import type { IgState, IgStatus } from '../../../shared/api.js';
-import type { AppContext, IgController } from '../context.js';
+import type { AppContext, IgController, IgWebSource } from '../context.js';
 import { IgClient } from './api.js';
 import { refreshAvatars } from './avatars.js';
 import { cdpReachable, classifyUrl, closeOtherTabs, pickInstagramTab, resolveBrowserUrl, type PageKind } from './browser.js';
@@ -323,6 +323,16 @@ export class IgService implements IgController {
       this.attempt = 0;
       void this.connect(false);
     }
+  }
+
+  webSource(): IgWebSource | null {
+    const tab = this.tab;
+    if (!tab || (this.state !== 'ready' && this.state !== 'syncing')) return null;
+    return {
+      graphql: (name, variables) => tab.graphql(name, variables),
+      downloader: tab.downloader,
+      meId: this.meIds.igId,
+    };
   }
 
   retryMedia(messageId: string): boolean {

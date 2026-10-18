@@ -192,6 +192,38 @@ async function graphql(req: http.IncomingMessage, res: http.ServerResponse): Pro
         fetch__SlideThread: { as_ig_direct_thread: { slide_messages: { edges: p.messages.map((m) => ({ node: m })), page_info: { end_cursor: p.cursor, has_next_page: p.hasMore } } } },
       });
     }
+    case 'PolarisClipsTabDesktopPaginationQuery': {
+      // Two pages of reels (videos from the fake CDN), like Instagram's /reels/ feed.
+      const page = vars.after === 'REELS_P2' ? 2 : 1;
+      log.push({ kind: 'reels', detail: { page, seen: (vars.data as { seen_reels?: string })?.seen_reels ?? null } });
+      const reel = (n: number) => ({
+        node: {
+          __typename: 'XDTClipsItem',
+          media: {
+            pk: String(3900000000000000000n + BigInt(n)),
+            code: `FAKEREEL${n}`,
+            taken_at: Math.floor(Date.now() / 1000) - n * 60,
+            product_type: 'clips',
+            media_type: 2,
+            caption: { text: `Reel number ${n}` },
+            like_count: 1000 * n,
+            comment_count: 10 * n,
+            original_width: 720,
+            original_height: 1280,
+            video_versions: [{ width: 720, height: 1280, url: `${CDN}/reel${n}.mp4` }],
+            image_versions2: { candidates: [{ width: 720, height: 1280, url: `${CDN}/reel${n}.jpg` }] },
+            user: { pk: '777', username: 'reel.maker', full_name: 'Reel Maker', is_verified: true, profile_pic_url: `${CDN}/maker.jpg` },
+          },
+        },
+        cursor: '',
+      });
+      return gql(res, {
+        xdt_api__v1__clips__home__connection_v2: {
+          edges: page === 1 ? [reel(1), reel(2), reel(3)] : [reel(4)],
+          page_info: { end_cursor: page === 1 ? 'REELS_P2' : null, has_next_page: page === 1 },
+        },
+      });
+    }
     case 'IGDirectTextSendMutation': {
       const chatId = String(vars.ig_thread_igid);
       const text = (vars.text as { sensitive_string_value: string }).sensitive_string_value;

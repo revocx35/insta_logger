@@ -15,6 +15,8 @@ export const DEFAULT_DOC_IDS: Record<string, string> = {
   IGDMessageUnsendDialogOffMsysMutation: '26948700068153789',
   IGDirectReactionSendMutation: '24374451552236906',
   useIGDMarkThreadAsReadMutation: '27356881703909995',
+  // The Reels section (igweb/): read from Instagram Web's own requests, 2026-10-18.
+  PolarisClipsTabDesktopPaginationQuery: '28198345703199479',
 };
 
 export type QueryName = keyof typeof DEFAULT_DOC_IDS;

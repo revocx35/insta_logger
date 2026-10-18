@@ -7,6 +7,7 @@ import { Spinner } from './components/ui';
 import { LoginPage, RecoverPage, SetupRecoveryPage, SignupPage } from './pages/Auth';
 import { MainLayout } from './pages/MainLayout';
 import { ChatsPage, DeletedPage, InstagramPage, NotFoundPage, SearchPage } from './pages/Pages';
+import { ReelsPage } from './pages/Reels';
 import { SettingsPage } from './pages/Settings';
 import { SetupLinkPage } from './pages/SetupLink';
 import { AppStateProvider, useAppState } from './state/AppState';
@@ -68,6 +69,7 @@ const router = createBrowserRouter([
           { path: '/deleted', element: <DeletedPage /> },
           { path: '/search', element: <SearchPage /> },
           { path: '/instagram', element: <InstagramPage /> },
+          { path: '/reels', element: <ReelsPage /> },
           { path: '/settings', element: <SettingsPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],

@@ -114,3 +114,14 @@ Uploads: multipart `farr` (+ `voice_clip=true`) to `/ajax/mercury/upload.php?<co
 3. Send a text, a reply, a reaction, a photo and a voice message from insta_logger; check them in the Instagram app.
 4. `docker compose logs app | grep -i 'failed\|error'` — GraphQL errors name the query (never content).
 5. If something fails, compare the tab's real requests (Settings → Instagram shows the last live update time).
+
+## Reels (the Reels section)
+
+* `PolarisClipsTabDesktopPaginationQuery` (doc 28198345703199479, 2026-10-18), variables as Instagram Web's /reels/
+  page sends them: `{after, before: null, data: {container_module: "clips_tab_desktop_page", seen_reels:
+  "[{\"id\":\"<pk>\"}]"}, first: 10, last: null}` + relay providers `PolarisReelsRecoDebugOverlayEnabled: false,
+  PolarisThreadsStyleCommentsEnabled: false, PolarisShortDramaEnabled: true`. `after: null` gives the first page.
+* Answer: `xdt_api__v1__clips__home__connection_v2 {edges[].node.media, page_info {end_cursor, has_next_page}}`; the
+  media is the usual XDT media dict (`pk`, `code`, `user`, `caption.text`, `like_count`, `comment_count`,
+  `video_versions[] {url, width, height}` progressive MP4, `image_versions2.candidates[]`).
+* A reel link sent as DM text (`https://www.instagram.com/reel/<code>/`) shows as a reel card in Instagram.

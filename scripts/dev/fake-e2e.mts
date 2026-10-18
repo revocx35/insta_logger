@@ -265,6 +265,20 @@ async function main() {
   const later = appReqs.filter((e) => e.name === 'IGDThreadDetailQuery').map((e) => e.detail.docId);
   check(later.includes('4242424242424242'), `doc id learned from the page (${[...new Set(later)].join(',')})`);
 
+  // Reels: the feed through the server's session, videos through the server's browser, sharing as a link.
+  const r1 = (await api('GET', '/api/reels')).json as { items: any[]; next: string | null } | null;
+  check(r1?.items.length === 3 && r1.next === 'REELS_P2' && r1.items[0].media[0].kind === 'video', `reels feed: first page (${r1?.items.length})`);
+  check(!JSON.stringify(r1).includes('fakeig') && /^\/api\/reels\/media\/[A-Za-z0-9_-]{22}$/.test(r1?.items[0]?.media[0]?.src ?? ''), 'reel links are app links, not Instagram CDN links');
+  const r2 = (await api('GET', `/api/reels?cursor=${r1?.next}`)).json as { items: any[]; next: string | null } | null;
+  check(r2?.items.length === 1 && r2.next === null, 'reels feed: next page');
+  check((await fakeLog()).log.filter((e) => e.kind === 'reels').some((e) => String(e.detail?.seen).includes('3900000000000000001')), 'reels already shown are passed on as seen');
+  const clip = await api('GET', r1!.items[0].media[0].src);
+  check(clip.status === 200 && clip.buf.subarray(4, 8).toString() === 'ftyp', `reel video served through the browser (${clip.status})`);
+  const part = await fetch(`${BASE}${r1!.items[0].media[0].src}`, { headers: { origin: ORIGIN, cookie, range: 'bytes=0-3' } });
+  check(part.status === 206 && (await part.arrayBuffer()).byteLength === 4, 'reel video supports range requests');
+  const share = await api('POST', `/api/chats/${CHAT}/send`, { text: `https://www.instagram.com/reel/${r1!.items[0].code}/` });
+  check(share.status === 200 && (await fakeLog()).log.some((e) => e.kind === 'sent_text' && e.detail?.text === 'https://www.instagram.com/reel/FAKEREEL1/'), 'a reel is shared into a chat as its link');
+
   // Downtime: a message arrives and an older one is unsent while the app is stopped.
   while (Date.now() - started < 65_000) await sleep(1000);
   dc('stop', 'app');

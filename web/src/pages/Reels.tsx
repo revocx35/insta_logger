@@ -1,0 +1,293 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChatSummary, WebPost } from '../../../shared/api';
+import { api, errorMessage } from '../api/client';
+import { Icon } from '../components/Icon';
+import { Avatar, EmptyState, ErrorNote, Spinner } from '../components/ui';
+import { useAppState } from '../state/AppState';
+
+/** Instagram's reels, played through the server; "Send" shares a reel's link into a chat. */
+export function ReelsPage() {
+  const { ig } = useAppState();
+  const connected = ig?.state === 'ready' || ig?.state === 'syncing';
+  const [reels, setReels] = useState<WebPost[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const [muted, setMuted] = useState(true);
+  const [sharing, setSharing] = useState<WebPost | null>(null);
+  const busy = useRef(false);
+
+  const load = useCallback(
+    async (cursor: string | null) => {
+      if (busy.current) return;
+      busy.current = true;
+      setLoading(true);
+      setError(null);
+      try {
+        const page = await api.reels(cursor);
+        setReels((old) => {
+          const have = new Set(old.map((r) => r.id));
+          return [...(cursor ? old : []), ...page.items.filter((r) => !have.has(r.id) || !cursor)];
+        });
+        setNext(page.next);
+        setDone(!page.next);
+      } catch (e) {
+        setError(errorMessage(e));
+      } finally {
+        busy.current = false;
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (connected && !reels.length && !busy.current) void load(null);
+  }, [connected, reels.length, load]);
+
+  // Near the end: fetch the next page.
+  useEffect(() => {
+    if (next && !done && active >= reels.length - 3) void load(next);
+  }, [active, reels.length, next, done, load]);
+
+  if (!connected) {
+    return (
+      <div className="page">
+        <EmptyState icon="reels" title="Instagram is not connected">
+          Reels play through the server's Instagram login. Log in on the Instagram screen first.
+        </EmptyState>
+      </div>
+    );
+  }
+
+  return (
+    <div className="reels-page">
+      <div className="reels-scroller">
+        {reels.map((r, i) => (
+          <Reel
+            key={r.id}
+            reel={r}
+            index={i}
+            near={Math.abs(i - active) <= 1}
+            active={i === active}
+            muted={muted}
+            onVisible={setActive}
+            onMute={() => setMuted((m) => !m)}
+            onShare={() => setSharing(r)}
+          />
+        ))}
+        <div className="reels-end">
+          {loading ? <Spinner /> : null}
+          <ErrorNote error={error} />
+          {error ? (
+            <button className="btn" onClick={() => void load(reels.length ? next : null)}>
+              Try again
+            </button>
+          ) : null}
+          {done && reels.length && !loading ? <p className="muted">That's all for now.</p> : null}
+        </div>
+      </div>
+      {sharing ? <ShareSheet reel={sharing} onClose={() => setSharing(null)} /> : null}
+    </div>
+  );
+}
+
+function compact(n: number | null): string {
+  if (n === null) return '';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}K`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
+function Reel(props: {
+  reel: WebPost;
+  index: number;
+  near: boolean;
+  active: boolean;
+  muted: boolean;
+  onVisible: (i: number) => void;
+  onMute: () => void;
+  onShare: () => void;
+}) {
+  const { reel, index, near, active, muted, onVisible, onMute, onShare } = props;
+  const box = useRef<HTMLElement>(null);
+  const video = useRef<HTMLVideoElement>(null);
+  const [paused, setPaused] = useState(false);
+  const [more, setMore] = useState(false);
+  const clip = reel.media.find((m) => m.kind === 'video') ?? reel.media[0]!;
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const io = new IntersectionObserver((e) => e[0]?.isIntersecting && onVisible(index), { threshold: 0.6 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [index, onVisible]);
+
+  useEffect(() => {
+    const v = video.current;
+    if (!v) return;
+    if (active) {
+      v.currentTime = 0;
+      setPaused(false);
+      void v.play().catch(() => setPaused(true));
+    } else v.pause();
+  }, [active]);
+
+  const toggle = () => {
+    const v = video.current;
+    if (!v) return;
+    if (v.paused) {
+      void v.play();
+      setPaused(false);
+    } else {
+      v.pause();
+      setPaused(true);
+    }
+  };
+
+  return (
+    <section className="reel" ref={box} aria-label={`Reel by ${reel.user.username}`}>
+      <div className="reel-stage">
+        {near ? (
+          <video
+            ref={video}
+            className="reel-video"
+            src={clip.src}
+            poster={clip.poster ?? undefined}
+            loop
+            playsInline
+            muted={muted}
+            preload={active ? 'auto' : 'metadata'}
+            onClick={toggle}
+          />
+        ) : clip.poster ? (
+          <img className="reel-video" src={clip.poster} alt="" loading="lazy" />
+        ) : (
+          <div className="reel-video" />
+        )}
+        {paused && active ? (
+          <button className="reel-play" onClick={toggle} aria-label="Play">
+            ▶
+          </button>
+        ) : null}
+        <button className="reel-mute" onClick={onMute} aria-label={muted ? 'Sound on' : 'Sound off'}>
+          <Icon name={muted ? 'mute' : 'volume'} size={18} />
+        </button>
+        <div className="reel-info">
+          <div className="reel-author">
+            <Avatar id={reel.user.id} name={reel.user.username} url={reel.user.avatar} size={32} />
+            <b>{reel.user.username}</b>
+            {reel.user.verified ? <Icon name="check" size={14} className="reel-verified" title="Verified" /> : null}
+          </div>
+          {reel.caption ? (
+            <p className={more ? 'reel-caption open' : 'reel-caption'} onClick={() => setMore((m) => !m)}>
+              {reel.caption}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="reel-actions">
+        <span className="reel-action" title="Likes">
+          <Icon name="heart" size={26} />
+          <small>{compact(reel.likeCount)}</small>
+        </span>
+        <span className="reel-action" title="Comments">
+          <Icon name="comment" size={26} />
+          <small>{compact(reel.commentCount)}</small>
+        </span>
+        <button className="reel-action" onClick={onShare} title="Send to a chat" disabled={!reel.code}>
+          <Icon name="send" size={26} />
+          <small>Send</small>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ShareSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }) {
+  const [chats, setChats] = useState<ChatSummary[] | null>(null);
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<string[]>([]);
+  const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .chats()
+      .then((c) => setChats(c.filter((x) => !x.removed)))
+      .catch((e) => setError(errorMessage(e)));
+  }, []);
+
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return (chats ?? []).filter((c) => !t || c.name.toLowerCase().includes(t) || (c.username ?? '').toLowerCase().includes(t)).slice(0, 60);
+  }, [chats, q]);
+
+  const send = async () => {
+    setSending(true);
+    setError(null);
+    try {
+      const link = `https://www.instagram.com/reel/${reel.code}/`;
+      for (const id of picked) {
+        await api.sendText(id, link);
+        if (note.trim()) await api.sendText(id, note.trim());
+      }
+      setSent(true);
+      setTimeout(onClose, 900);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" role="dialog" aria-label="Send reel" onClick={(e) => e.stopPropagation()}>
+        <header className="sheet-head">
+          <b>Send to</b>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </button>
+        </header>
+        <input className="sheet-search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        <div className="sheet-list">
+          {chats === null && !error ? <Spinner /> : null}
+          {shown.map((c) => {
+            const on = picked.includes(c.id);
+            return (
+              <button key={c.id} className={on ? 'sheet-chat on' : 'sheet-chat'} onClick={() => setPicked((p) => (on ? p.filter((x) => x !== c.id) : [...p, c.id]))}>
+                <Avatar id={c.id} name={c.name} url={c.avatarUrl} kind={c.kind} size={44} />
+                <span className="sheet-name">
+                  {c.name}
+                  {c.username && c.username !== c.name ? <small className="muted">{c.username}</small> : null}
+                </span>
+                <span className="sheet-check">{on ? <Icon name="check" size={16} /> : null}</span>
+              </button>
+            );
+          })}
+          {chats && !shown.length ? <p className="muted small">No chats found.</p> : null}
+        </div>
+        <ErrorNote error={error} />
+        <footer className="sheet-foot">
+          <input placeholder="Write a message…" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
+          <button className="btn primary" disabled={!picked.length || sending || sent} onClick={() => void send()}>
+            {sending ? <Spinner size={18} /> : sent ? 'Sent' : picked.length > 1 ? `Send separately (${picked.length})` : 'Send'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}

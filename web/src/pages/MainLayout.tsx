@@ -6,6 +6,7 @@ import { useAppState } from '../state/AppState';
 
 const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: '/', label: 'Chats', icon: 'chats', end: true },
+  { to: '/reels', label: 'Reels', icon: 'reels' },
   { to: '/deleted', label: 'Unsent', icon: 'deleted' },
   { to: '/search', label: 'Search', icon: 'search' },
   { to: '/instagram', label: 'Instagram', icon: 'monitor' },
