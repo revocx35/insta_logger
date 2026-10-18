@@ -322,6 +322,12 @@ insta_logger keeps only Instagram's own cookies from what you paste (`sessionid`
 
 From now on every new direct message is logged; the newest `HISTORY_PER_CHAT` messages of each chat are imported too.
 
+## Android app
+
+A native Android client for this server: [insta_logger_android](https://github.com/revocx35/insta_logger_android)
+(signed APK on its Releases page). Chats with unsent copies, sending, the Instagram screen, settings and Reels — all
+through your server, so the phone never talks to Instagram.
+
 ## Using it
 
 | Menu | What it does |

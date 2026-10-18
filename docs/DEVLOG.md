@@ -63,3 +63,4 @@
   to comments (+ first replies shown). Owner added narrow permission rules (CT 120 exec/push, insta_logger edits). e2e 54.
 - Reels refresh button (fresh feed from the top). Setting "refresh the Instagram session": background tab reload every
   1–24 h (default on, 2 h), each time randomly up to 10 min earlier or later (refreshDelay), postponed while importing.
+- Native Android client released as a separate repo: github.com/revocx35/insta_logger_android (0.1.0).
