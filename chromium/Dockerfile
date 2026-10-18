@@ -11,6 +11,7 @@ RUN apt-get update \
       xvfb x11vnc \
       socat iproute2 curl ca-certificates tini \
       fonts-noto-color-emoji fonts-noto-core fonts-dejavu-core fonts-liberation \
+      libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgl1 libegl1 \
  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Managed policy: lock the browser down to Instagram (and the Meta domains its login and media use).

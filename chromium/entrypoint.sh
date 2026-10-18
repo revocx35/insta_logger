@@ -64,7 +64,7 @@ supervise() { # name, command...
 }
 
 start_xvfb() {
-  Xvfb :99 -screen 0 "${WIDTH}x${HEIGHT}x24" -nolisten tcp -dpi 96 +extension RANDR >/dev/null 2>&1
+  Xvfb :99 -screen 0 "${WIDTH}x${HEIGHT}x24" -nolisten tcp -dpi 96 +extension RANDR +extension GLX >/dev/null 2>&1
 }
 
 wait_for_display() {
@@ -87,6 +87,8 @@ start_chromium() {
   [[ "${CHROMIUM_DEBUG:-0}" == "1" ]] && out=/dev/stderr
   # The background flags: a hidden or occluded Instagram tab would get throttled timers, and its message stream
   # keep-alives with them.
+  # --ignore-gpu-blocklist: WebGL through Mesa's software renderer (llvmpipe), as on a Linux PC without a GPU driver.
+  # Without WebGL the browser looks like a headless bot, and Instagram's login keeps asking for a captcha.
   chromium \
     --user-data-dir="$PROFILE_DIR" \
     --remote-debugging-port="$CDP_INTERNAL_PORT" \
@@ -96,6 +98,7 @@ start_chromium() {
     --password-store=basic \
     --disable-features=Translate,MediaRouter,DialMediaRouteProvider \
     --disable-component-update \
+    --ignore-gpu-blocklist \
     --noerrdialogs \
     --hide-crash-restore-bubble \
     --disable-session-crashed-bubble \

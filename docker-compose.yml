@@ -90,6 +90,8 @@ services:
     environment:
       VNC_PASSWORD: ${VNC_PASSWORD:?run scripts/setup.sh first}
       SCREEN: ${SCREEN:-1280x800x24}
+      # The browser's time zone (Instagram compares it with your IP address's location).
+      TZ: ${TZ:-UTC}
       BACKEND_PEER: app
     volumes:
       - chromium_profile:/data

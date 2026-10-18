@@ -34,3 +34,11 @@
   blocks third-party cookies by default). Added `CookiesAllowedForUrls` pairs `https://[*.]<google/gstatic/recaptcha.net/
   facebook/fbsbx>,https://www.instagram.com`. Checked in the container: a google.com frame inside an instagram.com page
   could not keep a cookie before, and can after.
+- Still a captcha loop after that: the captcha passes (`is_success: true`), but the next login asks again
+  (`useCDSWebLoginMutation` → error 1348009, `recaptcha_needed`; the gate is Meta's "anti-scripting" check). The browser
+  looked like a bot: no WebGL at all (no GPU, no software GL), time zone UTC/unknown. Now: Mesa llvmpipe WebGL
+  (`--ignore-gpu-blocklist`, Xvfb GLX; renderer "ANGLE (Mesa, llvmpipe …)" like a Linux PC without a GPU driver, sandbox
+  still on), and `TZ` in `.env` (setup.sh writes the server's zone) passed to the chromium container.
+- Open: keep the app's CDP off the tab while it is on login/challenge pages (puppeteer's Page enables Runtime in the
+  page and the reCAPTCHA frames; detectable). Plan: poll `/json/list` + browser-level `Storage.getCookies` with a raw
+  WebSocket during login, attach puppeteer only once `sessionid` exists and the tab left the login pages.

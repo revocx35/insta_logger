@@ -5,7 +5,7 @@
 #   scripts/setup.sh --site 192.168.1.50               # LAN / IP address (Caddy internal CA)
 #   scripts/setup.sh --site ig.example.com --email me@example.com   # public domain (Let's Encrypt)
 #   scripts/setup.sh --site 192.168.1.50 --http-only  # plain HTTP; your own reverse proxy terminates TLS
-#   options: --https-port 443 --http-port 80 --env-file .env --force
+#   options: --https-port 443 --http-port 80 --timezone Europe/Istanbul --env-file .env --force
 set -euo pipefail
 
 # Inside a git checkout: write .env at the repository root (next to docker-compose.yml).
@@ -18,7 +18,7 @@ else
   START_CMD="docker compose up -d"
 fi
 
-SITE="" EMAIL="" HTTPS_PORT="443" HTTP_PORT="80" ENV_FILE=".env" FORCE=0 HTTP_ONLY=0
+SITE="" EMAIL="" HTTPS_PORT="443" HTTP_PORT="80" ENV_FILE=".env" FORCE=0 HTTP_ONLY=0 TIMEZONE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --site) SITE="$2"; shift 2 ;;
@@ -26,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --https-port) HTTPS_PORT="$2"; shift 2 ;;
     --http-port) HTTP_PORT="$2"; shift 2 ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
+    --timezone) TIMEZONE="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
     --http-only) HTTP_ONLY=1; shift ;;
     -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
@@ -41,6 +42,14 @@ fi
 
 rand() { # $1 = length, alphanumeric (head closing the pipe early is expected, hence +pipefail)
   ( set +o pipefail; LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1" )
+}
+
+host_timezone() { # the server's time zone name (e.g. Europe/Istanbul), else UTC
+  local tz=""
+  command -v timedatectl >/dev/null 2>&1 && tz="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+  [[ -z "$tz" && -f /etc/timezone ]] && tz="$(tr -d ' \n' </etc/timezone)"
+  [[ -z "$tz" && -L /etc/localtime ]] && tz="$(readlink /etc/localtime | sed -n 's#.*/zoneinfo/##p')"
+  echo "${tz:-UTC}"
 }
 
 default_ip() {
@@ -71,6 +80,8 @@ else
 fi
 
 [[ "$HTTPS_PORT" =~ ^[0-9]{1,5}$ && "$HTTP_PORT" =~ ^[0-9]{1,5}$ ]] || { echo "invalid port" >&2; exit 2; }
+TIMEZONE="${TIMEZONE:-$(host_timezone)}"
+[[ "$TIMEZONE" =~ ^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$ ]] || { echo "invalid time zone: $TIMEZONE" >&2; exit 2; }
 ORIGIN="https://${SITE}"
 [[ "$HTTPS_PORT" != "443" ]] && ORIGIN="${ORIGIN}:${HTTPS_PORT}"
 if [[ $HTTP_ONLY -eq 1 ]]; then
@@ -123,6 +134,8 @@ HISTORY_PER_CHAT=100
 RECONCILE_MINUTES=10
 LOG_LEVEL=info
 SCREEN=1280x800x24
+# The browser's time zone. Use the one you normally are in: Instagram compares it with your IP address's location.
+TZ=${TIMEZONE}
 EOF
 chmod 600 "$ENV_FILE"
 
