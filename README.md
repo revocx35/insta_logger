@@ -335,6 +335,7 @@ through your server, so the phone never talks to Instagram.
 | **Chats** | Instagram-style chat list (filters: groups, chats with unsent messages, message requests) and the chat view |
 | **Unsent** | Every message that was unsent (or vanished) after it was logged, newest first, with a link into its chat |
 | **Search** | Full-text search over decrypted messages and shared posts |
+| **Stories** | Logged stories of the accounts you follow (turn on in Settings → Logging, choose how many days to keep them): grid per account, full-screen viewer, *Check now*. Never marked as seen |
 | **Reels** | Instagram's reels feed, played through the server (Instagram only sees the server). Like (also double-click), read comments, comment and reply; **Send** shares a reel into your chats as its link |
 | **Instagram** | Live view of the background Instagram tab (view-only toggle, reload, log out) — log in here when needed |
 | **Settings** | Password, 2FA, recovery key, sessions, logging options, background session refresh (every N hours ± up to 10 min, random), security log, wipe data |
@@ -394,7 +395,7 @@ docker compose down               # stop (data stays in Docker volumes)
 cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck
 cd web && npm ci && npm test && npm run build
 scripts/smoke.sh                                   # full stack in an isolated compose project (23 checks, real instagram.com login page)
-cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (54 checks: login hands-off, pasted session, reels, stream, unsend, media, sending, reconcile)
+cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (61 checks: stories, login hands-off, pasted session, reels, stream, unsend, media, sending, reconcile)
 ```
 
 Docs: [ARCHITECTURE.md](ARCHITECTURE.md) (design), [docs/instagram-notes.md](docs/instagram-notes.md) (Instagram Web

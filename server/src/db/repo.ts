@@ -47,7 +47,7 @@ export interface MediaRow {
   mime_enc: Buffer | null;
   filename_enc: Buffer | null;
   size: number;
-  kind: 'message' | 'avatar';
+  kind: 'message' | 'avatar' | 'story';
   created_at: number;
 }
 
@@ -169,7 +169,31 @@ export const F = {
   reaction: (messageId: string, senderId: string) => ['reactions', 'emoji', `${messageId}|${senderId}`] as const,
   mediaMime: (path: string) => ['media', 'mime', path] as const,
   mediaFilename: (path: string) => ['media', 'filename', path] as const,
+  storyUsername: (id: string) => ['story_users', 'username', id] as const,
+  storyName: (id: string) => ['story_users', 'name', id] as const,
 };
+
+export interface StoryUserRow {
+  id: string;
+  username_enc: Buffer | null;
+  name_enc: Buffer | null;
+  avatar_media_id: number | null;
+  avatar_checked_at: number | null;
+  last_reel_at: number | null;
+  updated_at: number;
+}
+
+export interface StoryRow {
+  id: string;
+  user_id: string;
+  type: 'image' | 'video';
+  taken_at: number;
+  expires_at: number | null;
+  media_id: number | null;
+  status: 'pending' | 'downloaded' | 'failed' | 'too_large';
+  attempts: number;
+  captured_at: number;
+}
 
 /* ---------------------------------------------------------------- repo */
 
@@ -765,10 +789,99 @@ export class Repo implements DataKeyStore {
   /* ------------------------------------------------------------- wipe */
 
   /** Deletes all logged Instagram data (keeps owner, sessions, audit, settings). Returns media paths to unlink. */
+  /* ---------------------------------------------------------- stories */
+
+  upsertStoryUser(u: { id: string; username_enc: Buffer | null; name_enc: Buffer | null; now: number }): void {
+    this.db
+      .prepare(
+        `INSERT INTO story_users (id, username_enc, name_enc, updated_at) VALUES (@id, @username_enc, @name_enc, @now)
+         ON CONFLICT (id) DO UPDATE SET username_enc = COALESCE(excluded.username_enc, username_enc),
+           name_enc = COALESCE(excluded.name_enc, name_enc), updated_at = excluded.updated_at`,
+      )
+      .run(u);
+  }
+
+  getStoryUser(id: string): StoryUserRow | undefined {
+    return this.db.prepare('SELECT * FROM story_users WHERE id = ?').get(id) as StoryUserRow | undefined;
+  }
+
+  setStoryUserFields(id: string, f: Partial<Pick<StoryUserRow, 'avatar_media_id' | 'avatar_checked_at' | 'last_reel_at'>>): void {
+    const keys = Object.keys(f).filter((k) => ['avatar_media_id', 'avatar_checked_at', 'last_reel_at'].includes(k));
+    if (!keys.length) return;
+    this.db.prepare(`UPDATE story_users SET ${keys.map((k) => `${k} = @${k}`).join(', ')} WHERE id = @id`).run({ ...f, id });
+  }
+
+  insertStory(r: StoryRow): boolean {
+    return (
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO stories (id, user_id, type, taken_at, expires_at, media_id, status, attempts, captured_at)
+           VALUES (@id, @user_id, @type, @taken_at, @expires_at, @media_id, @status, @attempts, @captured_at)`,
+        )
+        .run(r).changes > 0
+    );
+  }
+
+  getStory(id: string): StoryRow | undefined {
+    return this.db.prepare('SELECT * FROM stories WHERE id = ?').get(id) as StoryRow | undefined;
+  }
+
+  updateStory(id: string, f: Partial<Pick<StoryRow, 'media_id' | 'status' | 'attempts'>>): void {
+    const keys = Object.keys(f).filter((k) => ['media_id', 'status', 'attempts'].includes(k));
+    if (!keys.length) return;
+    this.db.prepare(`UPDATE stories SET ${keys.map((k) => `${k} = @${k}`).join(', ')} WHERE id = @id`).run({ ...f, id });
+  }
+
+  /** Authors with their story counts, newest story first. */
+  listStoryUsers(): (StoryUserRow & { count: number; latest: number })[] {
+    return this.db
+      .prepare(
+        `SELECT u.*, COUNT(s.id) AS count, MAX(s.taken_at) AS latest FROM story_users u JOIN stories s ON s.user_id = u.id
+         GROUP BY u.id ORDER BY latest DESC`,
+      )
+      .all() as (StoryUserRow & { count: number; latest: number })[];
+  }
+
+  /** Stories, newest first (optionally of one author, older than [before]). */
+  listStories(opts: { userId?: string | null; before?: number | null; limit: number }): StoryRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM stories WHERE (@user IS NULL OR user_id = @user) AND (@before IS NULL OR taken_at < @before)
+         ORDER BY taken_at DESC, id DESC LIMIT @limit`,
+      )
+      .all({ user: opts.userId ?? null, before: opts.before ?? null, limit: opts.limit }) as StoryRow[];
+  }
+
+  /** Stories captured before [cutoff] (retention), with their media. */
+  storiesOlderThan(cutoff: number, limit = 500): StoryRow[] {
+    return this.db.prepare('SELECT * FROM stories WHERE taken_at < ? LIMIT ?').all(cutoff, limit) as StoryRow[];
+  }
+
+  deleteStory(id: string): void {
+    this.db.prepare('DELETE FROM stories WHERE id = ?').run(id);
+  }
+
+  /** Authors without stories left (after retention) and their avatar media ids. */
+  dropEmptyStoryUsers(): number[] {
+    return this.transaction(() => {
+      const rows = this.db
+        .prepare('SELECT id, avatar_media_id FROM story_users WHERE NOT EXISTS (SELECT 1 FROM stories s WHERE s.user_id = story_users.id)')
+        .all() as { id: string; avatar_media_id: number | null }[];
+      for (const r of rows) this.db.prepare('DELETE FROM story_users WHERE id = ?').run(r.id);
+      return rows.map((r) => r.avatar_media_id).filter((x): x is number => x !== null);
+    });
+  }
+
+  storyCount(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM stories').get() as { n: number }).n;
+  }
+
   wipeLoggedData(): string[] {
     return this.transaction(() => {
       const paths = this.allMediaPaths();
       this.db.exec(`
+        DELETE FROM stories;
+        DELETE FROM story_users;
         DELETE FROM reactions;
         DELETE FROM message_edits;
         DELETE FROM messages;

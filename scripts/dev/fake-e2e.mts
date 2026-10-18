@@ -296,6 +296,21 @@ async function main() {
   const share = await api('POST', `/api/chats/${CHAT}/send`, { text: `https://www.instagram.com/reel/${r1!.items[0].code}/` });
   check(share.status === 200 && (await fakeLog()).log.some((e) => e.kind === 'sent_text' && e.detail?.text === 'https://www.instagram.com/reel/FAKEREEL1/'), 'a reel is shared into a chat as its link');
 
+  // Story logging: off by default; once on, "check now" saves the stories of followed accounts, encrypted.
+  check((await api('GET', '/api/stories/status')).json?.enabled === false, 'story logging is off by default');
+  await api('PUT', '/api/settings', { storyLogging: true, storyRetentionDays: 7 });
+  const sc = (await api('POST', '/api/stories/check', {})).json;
+  check(sc?.enabled === true && sc?.stories === 2, `story check saved the stories (${sc?.stories}, ${sc?.lastResult})`);
+  const sa = (await api('GET', '/api/stories/authors')).json as any[];
+  check(sa?.length === 1 && sa[0].username === 'story.teller' && sa[0].count === 2 && /^\/api\/media\/\d+$/.test(sa[0].avatarUrl ?? ''), 'story author with avatar (live videos skipped)');
+  const sp = (await api('GET', '/api/stories')).json as { items: any[] };
+  check(sp.items.map((i) => i.type).join(',') === 'video,image' && sp.items.every((i) => i.status === 'downloaded'), 'stories listed newest first, downloaded');
+  const sv = await api('GET', sp.items[0].url);
+  check(sv.status === 200 && sv.buf.subarray(4, 8).toString() === 'ftyp', 'story video served from the encrypted store');
+  const sc2 = (await api('POST', '/api/stories/check', {})).json;
+  check(sc2?.stories === 2 && sc2?.lastResult === 'No new stories', 'a second check saves nothing twice');
+  check(!(await fakeLog()).log.some((e) => /Seen|seen/.test(e.name ?? '')), 'stories are never marked as seen');
+
   // Downtime: a message arrives and an older one is unsent while the app is stopped.
   while (Date.now() - started < 65_000) await sleep(1000);
   dc('stop', 'app');
@@ -343,7 +358,7 @@ async function main() {
   // No plaintext in the data volume.
   const dump = execFileSync('docker', ['compose', '--env-file', envFile, '-p', PROJECT, '-f', path.join(ROOT, 'docker-compose.yml'), '-f', path.join(work, 'override.yml'), 'exec', '-T', 'app', 'sh', '-c', 'cat /data/*.db* | base64 -w0'], { encoding: 'utf8', maxBuffer: 1 << 28 });
   const db = Buffer.from(dump, 'base64');
-  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig', pastedSession].filter((s) => db.includes(Buffer.from(s)));
+  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig', 'story.teller', 'Story Teller', pastedSession].filter((s) => db.includes(Buffer.from(s)));
   check(leaks.length === 0, `no plaintext content, names or links in the database files${leaks.length ? ` (found: ${leaks.join(', ')})` : ''}`);
 
   const logs = dc('logs', '--no-color', 'app');

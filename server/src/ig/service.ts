@@ -14,6 +14,7 @@ import type { SessionCookie } from './cookies.js';
 import { lookAtTab, nextLoginStep, setSessionCookies, steerTab, type TabLook } from './loginwatch.js';
 import { IgPage, IgRequestError } from './page.js';
 import { Sender } from './sender.js';
+import { StoryLogger } from './stories.js';
 import { INITIAL_SYNC_KEY, Sync } from './sync.js';
 
 const ME_KEY = 'ig_me';
@@ -119,6 +120,18 @@ export class IgService implements IgController {
       },
     );
     this.sender = new Sender(ctx, live, (chatId) => this.threadIdOf(chatId));
+    this.stories = new StoryLogger(ctx, () => this.webSource());
+  }
+
+  readonly stories: StoryLogger;
+
+  storyStatus() {
+    return this.stories.status();
+  }
+
+  async checkStoriesNow(): Promise<void> {
+    if (!this.webSource()) throw Errors.unavailable('Instagram is not connected.');
+    await this.stories.checkNow();
   }
 
   private deviceId: string | null = null;
@@ -158,6 +171,7 @@ export class IgService implements IgController {
     if (this.browser || this.connecting || this.watchTimer) return;
     this.stopped = false;
     this.wireRefresh();
+    this.stories.start();
     void this.connect();
   }
 
@@ -402,6 +416,7 @@ export class IgService implements IgController {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.stories.stop();
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.media.stop();

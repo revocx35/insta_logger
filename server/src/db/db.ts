@@ -160,6 +160,36 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: 2,
+    name: 'stories',
+    sql: `
+      -- Stories of the accounts the owner follows (story logging, off by default; kept for the retention setting).
+      CREATE TABLE story_users (
+        id TEXT PRIMARY KEY,                 -- Instagram user id (pk)
+        username_enc BLOB,
+        name_enc BLOB,
+        avatar_media_id INTEGER REFERENCES media (id) ON DELETE SET NULL,
+        avatar_checked_at INTEGER,
+        last_reel_at INTEGER,                -- newest story time (ms) fully captured
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE stories (
+        id TEXT PRIMARY KEY,                 -- Instagram story media id (pk)
+        user_id TEXT NOT NULL,
+        type TEXT NOT NULL,                  -- image | video
+        taken_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        media_id INTEGER REFERENCES media (id) ON DELETE SET NULL,
+        status TEXT NOT NULL,                -- pending | downloaded | failed | too_large
+        attempts INTEGER NOT NULL DEFAULT 0,
+        captured_at INTEGER NOT NULL
+      );
+      CREATE INDEX stories_taken ON stories (taken_at);
+      CREATE INDEX stories_user ON stories (user_id, taken_at);
+    `,
+  },
 ];
 
 export function openDb(file: string): DB {

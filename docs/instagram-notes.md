@@ -138,3 +138,12 @@ Uploads: multipart `farr` (+ `voice_clip=true`) to `/ajax/mercury/upload.php?<co
 * 2026-10-18: Instagram dropped the `PolarisAIGMAccountLabelEnabled` relay provider from the inbox and thread queries;
   with it (and the old inbox doc id) the inbox answered `{mailbox: null, errors: [1675030 field_exception]}`, which the
   first import took for an empty inbox. Now a null mailbox is an error, and an import that found no chats runs again.
+
+## Stories (story logging)
+
+* Stories bar: `GET /api/v1/feed/reels_tray/` → `tray[] {id, reel_type ('user_reel' | live…), latest_reel_media (s),
+  seen, user {pk, username, full_name, profile_pic_url}}` (checked live 2026-10-18).
+* Items: `PolarisStoriesV3ReelPageStandaloneQuery` (doc 28449850404637481) `{reel_ids_arr: [<user id>, …]}` →
+  `xdt_api__v1__feed__reels_media.reels_media[] {id, user, items[] {pk, taken_at, expiring_at, media_type 1|2,
+  image_versions2.candidates[], video_versions[]}}`; the answer also carries non-fatal `errors` (missing relay
+  providers) next to the data. Reading items does not mark them as seen (`PolarisAPIReelSeenMutation` does; never sent).

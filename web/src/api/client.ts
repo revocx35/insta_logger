@@ -10,6 +10,9 @@ import type {
   RecoverResponse,
   RotateRecoveryKeyResponse,
   SearchResponse,
+  StoryAuthor,
+  StoryPage,
+  StoryStatus,
   WebComment,
   WebPage,
   WebPost,
@@ -135,6 +138,11 @@ export const api = {
   reelLike: (id: string, like: boolean) => request<{ ok: true }>('POST', `/api/reels/${enc(id)}/like`, { like }),
   reelComment: (id: string, text: string, replyTo?: string | null) =>
     request<{ comment: WebComment | null }>('POST', `/api/reels/${enc(id)}/comments`, { text, ...(replyTo ? { replyTo } : {}) }),
+  storyStatus: () => request<StoryStatus>('GET', '/api/stories/status'),
+  storyCheck: () => request<StoryStatus>('POST', '/api/stories/check'),
+  storyAuthors: () => request<StoryAuthor[]>('GET', '/api/stories/authors'),
+  stories: (user?: string | null, before?: number | null) =>
+    request<StoryPage>('GET', `/api/stories?limit=60${user ? `&user=${enc(user)}` : ''}${before ? `&before=${before}` : ''}`),
   reels: (cursor?: string | null) => request<WebPage<WebPost>>('GET', `/api/reels${cursor ? `?cursor=${enc(cursor)}` : ''}`),
   messages: (chatId: string, before?: string | null, limit = 60) =>
     request<MessagePage>('GET', `/api/chats/${enc(chatId)}/messages?limit=${limit}${before ? `&before=${enc(before)}` : ''}`),

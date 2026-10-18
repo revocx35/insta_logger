@@ -32,7 +32,7 @@ export async function beginMediaFile(ctx: AppContext): Promise<PendingMediaFile>
 export async function finishMediaFile(
   ctx: AppContext,
   f: PendingMediaFile,
-  kind: 'message' | 'avatar',
+  kind: 'message' | 'avatar' | 'story',
   mime: string | null,
   filename: string | null,
 ): Promise<{ mediaId: number; size: number }> {
@@ -96,7 +96,7 @@ export async function downloadToMedia(
   ctx: AppContext,
   dl: Downloader,
   url: string,
-  kind: 'message' | 'avatar',
+  kind: 'message' | 'avatar' | 'story',
   impliedMime: string | null,
   maxBytes: number,
 ): Promise<{ status: 'ok'; mediaId: number; size: number } | Exclude<FetchOutcome, { status: 'ok' }>> {

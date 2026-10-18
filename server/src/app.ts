@@ -4,6 +4,7 @@ import { registerChatRoutes } from './api/chats.js';
 import { registerEventRoutes } from './api/events.js';
 import { registerMediaRoutes } from './api/media.js';
 import { registerReelsRoutes } from './api/reels.js';
+import { registerStoryRoutes } from './api/stories.js';
 import { registerSendRoutes } from './api/send.js';
 import { registerStateRoutes } from './api/state.js';
 import { registerAuthRoutes } from './auth/routes.js';
@@ -38,6 +39,7 @@ export async function createApp(
   registerChatRoutes(app, ctx);
   registerMediaRoutes(app, ctx);
   registerReelsRoutes(app, ctx);
+  registerStoryRoutes(app, ctx);
   registerSendRoutes(app, ctx);
   registerEventRoutes(app, ctx);
   registerAdminRoutes(app, ctx);

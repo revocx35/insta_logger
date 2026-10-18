@@ -224,6 +224,25 @@ async function graphql(req: http.IncomingMessage, res: http.ServerResponse): Pro
         },
       });
     }
+    case 'PolarisStoriesV3ReelPageStandaloneQuery': {
+      const ids = (vars.reel_ids_arr ?? []) as string[];
+      log.push({ kind: 'story_items', detail: { ids } });
+      const now = Math.floor(Date.now() / 1000);
+      return gql(res, {
+        xdt_api__v1__feed__reels_media: {
+          reels_media: ids
+            .filter((id) => id === '8801')
+            .map((id) => ({
+              id,
+              user: { pk: id, username: 'story.teller' },
+              items: [
+                { pk: '7700000000000000001', taken_at: now - 600, expiring_at: now + 86000, media_type: 1, image_versions2: { candidates: [{ width: 720, url: `${CDN}/story1.jpg` }] } },
+                { pk: '7700000000000000002', taken_at: now - 60, expiring_at: now + 86340, media_type: 2, video_versions: [{ width: 720, url: `${CDN}/story2.mp4` }], image_versions2: { candidates: [{ width: 720, url: `${CDN}/story2.jpg` }] } },
+              ],
+            })),
+        },
+      });
+    }
     case 'usePolarisLikeMediaXIGLikeMutation':
     case 'usePolarisLikeMediaXIGUnlikeMutation': {
       const input = (vars.input ?? {}) as Record<string, unknown>;
@@ -327,6 +346,24 @@ const server = http.createServer((req, res) => {
         // A login made in another browser: its Cookie header, as the owner would copy it.
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ cookie: `csrftoken=CSRF_TOKEN_x; ds_user_id=${ME_IG}; sessionid=${newSession()}; mid=fakemid` }));
       } else res.writeHead(404).end();
+      return;
+    }
+    // Stories bar (story logging).
+    if (p === '/api/v1/feed/reels_tray/' && req.method === 'GET') {
+      if (!sessionOf(req)) return void res.writeHead(401, { 'content-type': 'application/json' }).end('{"message":"login_required","status":"fail"}');
+      log.push({ kind: 'story_tray', ok: !!req.headers['x-ig-app-id'] });
+      const now = Math.floor(Date.now() / 1000);
+      res.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify(
+          fakeUrls({
+            tray: [
+              { id: '8801', reel_type: 'user_reel', latest_reel_media: now - 60, user: { pk: '8801', username: 'story.teller', full_name: 'Story Teller', profile_pic_url: `${CDN}/teller.jpg` } },
+              { id: 'live', reel_type: 'live', latest_reel_media: now, user: { pk: '8899', username: 'live.one' } },
+            ],
+            status: 'ok',
+          }),
+        ),
+      );
       return;
     }
     // Reels: comments, likes, new comments (Instagram Web's REST endpoints).

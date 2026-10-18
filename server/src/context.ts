@@ -1,4 +1,4 @@
-import type { IgStatus, SendMediaKind, SendResult } from '../../shared/api.js';
+import type { IgStatus, SendMediaKind, SendResult, StoryStatus } from '../../shared/api.js';
 import type { Config } from './config.js';
 import type { SessionCookie } from './ig/cookies.js';
 import type { Downloader } from './ig/media.js';
@@ -44,6 +44,9 @@ export interface IgController {
   logout(): Promise<void>;
   /** Logs in with a session (cookies) from the owner's own browser, instead of the login form. */
   importSession(cookies: SessionCookie[]): Promise<void>;
+  /** Story logging: status and "check now". */
+  storyStatus(): StoryStatus;
+  checkStoriesNow(): Promise<void>;
   /** The live tab for the Reels section; null unless Instagram is connected and logged in. */
   webSource(): IgWebSource | null;
   /** Re-queues a media download. Returns false if the message has no retryable media. */
@@ -110,6 +113,12 @@ export class NullIg implements IgController {
   async logout(): Promise<void> {}
   webSource(): IgWebSource | null {
     return null;
+  }
+  storyStatus(): StoryStatus {
+    return { enabled: false, retentionDays: 30, stories: 0, lastCheckAt: null, nextCheckAt: null, lastResult: null };
+  }
+  async checkStoriesNow(): Promise<void> {
+    throw Errors.unavailable('Instagram is not enabled.');
   }
   async importSession(_cookies: SessionCookie[]): Promise<void> {
     throw Errors.unavailable('Instagram is not enabled.');

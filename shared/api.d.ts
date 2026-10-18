@@ -282,11 +282,50 @@ export interface Settings {
   /** Reload the Instagram tab in the background every `sessionRefreshHours` (± up to 10 minutes, random). */
   sessionRefresh: boolean;
   sessionRefreshHours: number; // 1..24
+  /** Log the stories of the accounts the owner follows (checked about every 45 minutes; never marked as seen). */
+  storyLogging: boolean;
+  /** Keep logged stories this many days (by when they were posted), then delete them. */
+  storyRetentionDays: number; // 1..3650
 }
 
 export interface AuditEntry { id: number; ts: number; event: string; ip: string | null; detail: string | null }
 
 export interface WipeRequest { password: string; totp?: string }
+
+/* ----------------------------------------------------------- Stories */
+
+export interface StoryAuthor {
+  id: string;
+  username: string | null;
+  name: string | null;
+  avatarUrl: string | null; // "/api/media/<id>" or null
+  count: number;
+  latest: number;
+}
+
+export interface StoryItem {
+  id: string;
+  userId: string;
+  username: string | null;
+  type: 'image' | 'video';
+  takenAt: number;
+  expiresAt: number | null;
+  /** pending · downloaded · failed · too_large */
+  status: string;
+  url: string | null; // "/api/media/<id>" when downloaded
+}
+
+export interface StoryPage { items: StoryItem[]; nextBefore: number | null }
+
+export interface StoryStatus {
+  enabled: boolean;
+  retentionDays: number;
+  stories: number;
+  lastCheckAt: number | null;
+  nextCheckAt: number | null;
+  /** Short safe text about the last check (e.g. "12 new stories from 5 accounts"). */
+  lastResult: string | null;
+}
 
 /* ------------------------------------------------------------- Reels */
 // Instagram's reels feed, fetched live through the server's Instagram session (nothing of it is stored).

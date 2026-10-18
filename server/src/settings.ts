@@ -9,6 +9,8 @@ export const SettingsSchema = z.object({
   readReceipts: z.boolean(),
   sessionRefresh: z.boolean(),
   sessionRefreshHours: z.number().int().min(1).max(24),
+  storyLogging: z.boolean(),
+  storyRetentionDays: z.number().int().min(1).max(3650),
 });
 
 const KEY = 'settings';
@@ -31,6 +33,8 @@ export class SettingsStore {
       readReceipts: false,
       sessionRefresh: true,
       sessionRefreshHours: 2,
+      storyLogging: false,
+      storyRetentionDays: 30,
     };
     const raw = this.repo.getState(KEY);
     let stored: Partial<Settings> = {};

@@ -17,6 +17,8 @@ export const DEFAULT_DOC_IDS: Record<string, string> = {
   useIGDMarkThreadAsReadMutation: '27399783383056109',
   // The Reels section (igweb/): read from Instagram Web's own requests, 2026-10-18.
   PolarisClipsTabDesktopPaginationQuery: '28198345703199479',
+  // Story logging (ig/stories.ts): the stories viewer's query, 2026-10-18.
+  PolarisStoriesV3ReelPageStandaloneQuery: '28449850404637481',
   usePolarisLikeMediaXIGLikeMutation: '27182485238052618',
   usePolarisLikeMediaXIGUnlikeMutation: '27345296031770102',
   PolarisPostCommentInputRevampedMutation: '27261905640092552',

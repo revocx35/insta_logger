@@ -173,6 +173,15 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   attached to the tab, except for single `Page.navigate`/`Page.reload` commands (open the login page from a blank or
   stray tab; reload a login page once on (re)start). It attaches again once `sessionid` + `ds_user_id` exist and the tab
   has left the login/challenge pages. The fake e2e checks `Target.getTargets().attached === false` while logged out.
+* **Story logging** (`ig/stories.ts`, `api/stories.ts`, `web/src/pages/Stories.tsx`; off by default). About every
+  45 min (± random ≤ 10 min, `storyDelay`) the stories bar is read (`GET /api/v1/feed/reels_tray/`, live videos and the
+  owner's own reel skipped); authors with stories newer than `story_users.last_reel_at` (or unfinished downloads from
+  the last 24 h) get their items from `PolarisStoriesV3ReelPageStandaloneQuery` (≤ 10 authors per request, ≥ 1.5 s
+  apart, ≤ 150 authors per check). The largest photo / video version is downloaded through the browser into an
+  encrypted media file (`kind 'story'`), with ≤ 3 attempts; avatars refreshed daily. Usernames/names are encrypted
+  (`F.storyUsername/storyName`). Nothing is marked as seen. Retention: stories posted more than
+  `storyRetentionDays` ago are deleted with their files (also when logging is off); authors without stories go too.
+  Tables `story_users`, `stories` (migration 2); wiped with the rest of the logged data.
 * **Reels section** (`igweb/`, `api/reels.ts`, `web/src/pages/Reels.tsx`). `GET /api/reels?cursor=` runs Instagram
   Web's own reels query (`PolarisClipsTabDesktopPaginationQuery`, variables copied from its /reels/ page, already-shown
   reels passed as `seen_reels`) inside the tab, paced (one at a time, ≥ 500 ms apart). Videos and pictures: the server
@@ -382,6 +391,8 @@ Migrations in `server/src/db/db.ts` (append-only). Bodies and edit history share
 | POST | /api/auth/totp/setup · enable · disable · /api/auth/recovery-key/rotate | ✓ | TOTP, recovery key |
 | GET | /api/ig/status | ✓ | `IgStatus` |
 | POST | /api/ig/restart · /api/ig/logout | ✓ | reload the tab / log the browser out of Instagram |
+| GET | /api/stories/status · /api/stories/authors · /api/stories?user=&before=&limit= | ✓ | `StoryStatus` · `StoryAuthor[]` · `StoryPage` (newest first; media via /api/media/:id) |
+| POST | /api/stories/check | ✓ | check for new stories now (6 per 10 min) |
 | GET | /api/reels?cursor= · /api/reels/media/:ref | ✓ | reels feed page (`WebPage<WebPost>`) · a reel's video/picture |
 | GET · POST | /api/reels/:id/comments · /api/reels/:id/like · POST /api/reels/:id/comments | ✓ | comments page · `{like}` · `{text}` (≤ 2200) |
 | POST | /api/ig/session | ✓ | `{cookies}`: log in with a session from the owner's own browser (cURL / Cookie header / JSON); 409 when logged in |
@@ -423,7 +434,7 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
 * `web`: vitest for `igText` (links, mentions, injection attempts, hostile input speed), typecheck, production build.
 * `scripts/smoke.sh` (23 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
   page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox.
-* `scripts/dev/fake-e2e.mts` (54 checks; reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
+* `scripts/dev/fake-e2e.mts` (61 checks; story logging (off by default, check now, author avatar, no live videos, Range-served video, nothing twice, never seen), reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
   login detection and re-login (nothing attached to the tab while logged out; logging in with a session pasted as
   "Copy as cURL", refused while logged in, never in the logs or DB), history import (3 chats, paging, history photo), live stream message, unsend kept,
   edit history, reaction, live photo downloaded through the browser, sending (text+reply, react/unreact, edit, unsend

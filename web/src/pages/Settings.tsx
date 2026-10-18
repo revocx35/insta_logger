@@ -355,6 +355,30 @@ function LoggingSection() {
         Reloads the background Instagram tab like a person coming back to it. Each time is randomly up to 10 minutes earlier or later than the
         interval, so it never happens on an exact schedule.
       </p>
+
+      <h3 className="settings-sub">Stories</h3>
+      <label className="check">
+        <input type="checkbox" checked={s.storyLogging} onChange={(e) => save({ storyLogging: e.target.checked })} /> Log the stories of the accounts I follow
+      </label>
+      <div className="form narrow">
+        <label>
+          Keep stories for (days)
+          <input
+            type="number"
+            min={1}
+            max={3650}
+            defaultValue={s.storyRetentionDays}
+            onBlur={(e) => {
+              const v = Math.round(Number(e.target.value));
+              if (v >= 1 && v <= 3650 && v !== s.storyRetentionDays) save({ storyRetentionDays: v });
+            }}
+          />
+        </label>
+      </div>
+      <p className="muted small">
+        Checks for new stories about every 45 minutes (at random times) and saves them encrypted on your server. Stories are never marked as
+        seen. Stories older than the number of days above are deleted, also when story logging is off.
+      </p>
       <ErrorNote error={a.error} />
       {a.ok ? <p className="ok-note">{a.ok}</p> : null}
     </Section>
