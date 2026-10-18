@@ -134,6 +134,16 @@ export class IgPage {
         /* eslint-disable @typescript-eslint/no-explicit-any */
         const W = window as any;
         const P: Record<string, string> = {};
+        // Right after a (re)load Instagram Web's modules aren't there yet: wait for them (up to 10 s), else the
+        // request lacks its tokens and Instagram answers with an HTML page.
+        for (let i = 0; i < 40; i++) {
+          try {
+            if (typeof W.require === 'function' && W.require('getAsyncParams')) break;
+          } catch {
+            /* not loaded yet */
+          }
+          await new Promise((r) => setTimeout(r, 250));
+        }
         try {
           const ap = W.require('getAsyncParams')('POST');
           for (const k of Object.keys(ap)) if (ap[k] !== undefined && ap[k] !== null) P[k] = String(ap[k]);
