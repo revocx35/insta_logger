@@ -104,7 +104,10 @@ Out of scope on purpose: calls, multiple accounts or tenants, starting new chats
 * Managed policy (`chromium/policies.json`): navigation only to `instagram.com`, `cdninstagram.com`, `facebook.com`,
   `fbcdn.net`, `fbsbx.com` (login, 2FA and consent pages and media need them), plus only the reCAPTCHA paths
   `www.google.com/recaptcha/`, `www.gstatic.com/recaptcha/`, `www.recaptcha.net/recaptcha/` (Instagram's login captcha
-  is reCAPTCHA Enterprise in a `www.fbsbx.com/captcha/recaptcha/iframe/` frame; blocked, it shows only a grey icon);
+  is reCAPTCHA Enterprise in a `www.fbsbx.com/captcha/recaptcha/iframe/` frame; blocked, it shows only a grey icon).
+  This Chromium blocks third-party cookies by default; `CookiesAllowedForUrls` allows them for Google (reCAPTCHA) and
+  Meta (`facebook.com`, `fbsbx.com`) frames only when the top-level page is `https://www.instagram.com`. Without the
+  `_GRECAPTCHA` cookie a solved captcha is rejected and Instagram sends you back to the login page;
   no downloads, file pickers, printing,
   password manager, sign-in, sync, extensions, notifications, geolocation, camera or microphone.
 

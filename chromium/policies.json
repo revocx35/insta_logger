@@ -1,5 +1,7 @@
 {
-  "URLBlocklist": ["*"],
+  "URLBlocklist": [
+    "*"
+  ],
   "URLAllowlist": [
     "instagram.com",
     "cdninstagram.com",
@@ -13,6 +15,13 @@
     "blob:*",
     "data:*"
   ],
+  "CookiesAllowedForUrls": [
+    "https://[*.]google.com,https://www.instagram.com",
+    "https://[*.]gstatic.com,https://www.instagram.com",
+    "https://[*.]recaptcha.net,https://www.instagram.com",
+    "https://[*.]facebook.com,https://www.instagram.com",
+    "https://[*.]fbsbx.com,https://www.instagram.com"
+  ],
   "DownloadRestrictions": 3,
   "AllowFileSelectionDialogs": false,
   "PrintingEnabled": false,
@@ -24,7 +33,9 @@
   "BrowserGuestModeEnabled": false,
   "BrowserAddPersonEnabled": false,
   "IncognitoModeAvailability": 1,
-  "ExtensionInstallBlocklist": ["*"],
+  "ExtensionInstallBlocklist": [
+    "*"
+  ],
   "BlockExternalExtensions": true,
   "TranslateEnabled": false,
   "MetricsReportingEnabled": false,

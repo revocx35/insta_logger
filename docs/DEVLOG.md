@@ -29,3 +29,8 @@
 - First real login hit Instagram's captcha page (`/auth_platform/recaptcha/`). Its reCAPTCHA frame
   (`www.google.com/recaptcha/enterprise/…`) was blocked by the URL policy and showed only a grey icon. The policy now
   allows the reCAPTCHA paths only (`www.google.com/recaptcha/`, `www.gstatic.com/recaptcha/`, `www.recaptcha.net/recaptcha/`).
+- Next: solving the captcha led straight back to the login page. A CDP trace (paths and cookie names only) showed
+  Chromium blocking reCAPTCHA's `_GRECAPTCHA` cookie as a third-party cookie (reason `UserPreferences`: this Chromium
+  blocks third-party cookies by default). Added `CookiesAllowedForUrls` pairs `https://[*.]<google/gstatic/recaptcha.net/
+  facebook/fbsbx>,https://www.instagram.com`. Checked in the container: a google.com frame inside an instagram.com page
+  could not keep a cookie before, and can after.
