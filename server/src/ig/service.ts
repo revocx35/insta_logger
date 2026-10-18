@@ -330,6 +330,7 @@ export class IgService implements IgController {
     if (!tab || (this.state !== 'ready' && this.state !== 'syncing')) return null;
     return {
       graphql: (name, variables) => tab.graphql(name, variables),
+      rest: (method, path, form) => tab.rest(method, path, form ?? null),
       downloader: tab.downloader,
       meId: this.meIds.igId,
     };
@@ -531,7 +532,8 @@ export class IgService implements IgController {
     const early = this.early;
     this.early = [];
     this.applyDeltas(early);
-    const firstSync = !this.ctx.repo.getState(INITIAL_SYNC_KEY);
+    // No chat at all after a "done" import means it found nothing (e.g. a changed inbox query): import again.
+    const firstSync = !this.ctx.repo.getState(INITIAL_SYNC_KEY) || this.ctx.repo.listChats().length === 0;
     this.setState(firstSync ? 'syncing' : 'ready', firstSync ? 'Importing chat history…' : undefined);
     this.media.resume();
     this.media.restorePending();

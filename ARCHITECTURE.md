@@ -179,7 +179,9 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   replaces every CDN link with an opaque ref (`MediaRefs`, memory only, 6 h), fetches it through the browser on request
   (`GET /api/reels/media/:ref`, ≤ 40 MB, 128 MB in-memory cache, Range support, `sandbox` CSP). Nothing of it is stored
   or logged. "Send" posts the reel's link (`https://www.instagram.com/reel/<code>/`) through the normal send route;
-  Instagram shows it as a reel card. Nothing of the reels is written to the database.
+  Instagram shows it as a reel card. Comments, likes and new comments use Instagram Web's REST endpoints
+  (`IgPage.rest`: `/api/v1/media/<id>/comments/`, `/api/v1/web/likes/<id>/like|unlike/`, `/api/v1/web/comments/<id>/add/`).
+  Nothing of the reels is written to the database.
 * **Logging in with the owner's own browser** (`ig/cookies.ts`, `POST /api/ig/session`). When Instagram's login keeps
   looping on its captcha (first real login, 2026-10-18), the owner logs in on their own computer and pastes DevTools'
   "Copy as cURL" (or a Cookie header / JSON export). Only Instagram's cookie names are kept (`sessionid` and
@@ -379,6 +381,7 @@ Migrations in `server/src/db/db.ts` (append-only). Bodies and edit history share
 | GET | /api/ig/status | ✓ | `IgStatus` |
 | POST | /api/ig/restart · /api/ig/logout | ✓ | reload the tab / log the browser out of Instagram |
 | GET | /api/reels?cursor= · /api/reels/media/:ref | ✓ | reels feed page (`WebPage<WebPost>`) · a reel's video/picture |
+| GET · POST | /api/reels/:id/comments · /api/reels/:id/like · POST /api/reels/:id/comments | ✓ | comments page · `{like}` · `{text}` (≤ 2200) |
 | POST | /api/ig/session | ✓ | `{cookies}`: log in with a session from the owner's own browser (cURL / Cookie header / JSON); 409 when logged in |
 | POST | /api/onboarding/complete | ✓ | requires state ready/syncing |
 | GET / WS | /api/vnc/credentials · /api/vnc | ✓ | noVNC password · bridge to chromium:5900 |
@@ -418,7 +421,7 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
 * `web`: vitest for `igText` (links, mentions, injection attempts, hostile input speed), typecheck, production build.
 * `scripts/smoke.sh` (23 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
   page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox.
-* `scripts/dev/fake-e2e.mts` (49 checks; reels feed, paging, video through the browser with Range, share as link): all three real images and real Chromium against `fake-instagram.mts` —
+* `scripts/dev/fake-e2e.mts` (53 checks; reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, share as link): all three real images and real Chromium against `fake-instagram.mts` —
   login detection and re-login (nothing attached to the tab while logged out; logging in with a session pasted as
   "Copy as cURL", refused while logged in, never in the logs or DB), history import (3 chats, paging, history photo), live stream message, unsend kept,
   edit history, reaction, live photo downloaded through the browser, sending (text+reply, react/unreact, edit, unsend

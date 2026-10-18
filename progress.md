@@ -12,7 +12,7 @@
 - [x] Login/challenge detection, tab kept on the inbox, watchdog, stream-silence reload
 - [x] Web UI: Instagram look, shares, music, albums, unsent badges, Instagram (VNC) page, settings
 - [x] Reels section (feed through the server's session, videos through the browser, share to a chat as link)
-- [x] Tests: 135 server unit/integration, 10 web, smoke 23 (real instagram.com login page), fake-Instagram e2e 49
+- [x] Tests: 137 server unit/integration, 10 web, smoke 23 (real instagram.com login page), fake-Instagram e2e 53
 - [x] Docs: README, ARCHITECTURE, SECURITY, AGENTS, CLAUDE, docs/instagram-notes.md
 
 ## Open

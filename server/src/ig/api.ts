@@ -1,4 +1,4 @@
-import type { IgPage } from './page.js';
+import { IgRequestError, type IgPage } from './page.js';
 import type { IgEdged, IgMessage, IgThread } from './types.js';
 
 /** Who is logged in, read from Instagram Web's own page data. */
@@ -31,7 +31,6 @@ export interface MessagesPage {
 const RELAY_PROVIDERS = {
   __relay_internal__pv__IGDPinnedThreadsRenderEnabledGKrelayprovider: true,
   __relay_internal__pv__IGDMaxUnreadMessagesCountrelayprovider: 5,
-  __relay_internal__pv__PolarisAIGMAccountLabelEnabledrelayprovider: false,
   __relay_internal__pv__IGDThreadListActionsEnabledGKrelayprovider: true,
 };
 const PAGE_SIZE = 20;
@@ -95,6 +94,8 @@ export class IgClient {
       ...RELAY_PROVIDERS,
     });
     const mb = data.get_slide_mailbox_for_iris_subscription;
+    // Instagram answers {mailbox: null, errors} when the query no longer matches its schema: not an empty inbox.
+    if (!mb) throw new IgRequestError('graphql', 'Instagram did not return the inbox.');
     const threads = edgesOf(mb?.threads_by_folder);
     for (const p of mb?.pinned_threads_v2 ?? []) if (p?.as_ig_direct_thread) threads.push(p.as_ig_direct_thread);
     const pi = mb?.threads_by_folder?.page_info;
@@ -118,7 +119,6 @@ export class IgClient {
       thread_fbid: chatId,
       __relay_internal__pv__IGDEnableOffMsysChatThemesQErelayprovider: false,
       __relay_internal__pv__IGDInitialMessagePageCountrelayprovider: PAGE_SIZE,
-      __relay_internal__pv__PolarisAIGMAccountLabelEnabledrelayprovider: false,
     });
     return data.get_slide_thread_nullable?.as_ig_direct_thread ?? null;
   }

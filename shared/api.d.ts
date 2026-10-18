@@ -323,6 +323,15 @@ export interface WebPost {
   location: string | null;
 }
 
+export interface WebComment {
+  id: string;
+  user: WebUser;
+  text: string;
+  createdAt: number;
+  likeCount: number;
+  replyCount: number;
+}
+
 export interface WebPage<T> {
   items: T[];
   /** Opaque cursor for the next page, null at the end. */

@@ -188,6 +188,47 @@ export class IgPage {
     return parseGraphQL<T>(r.text);
   }
 
+  /**
+   * Calls one of Instagram Web's own REST endpoints (`/api/v1/…`) from inside the page, as the website does (same
+   * cookies, CSRF token and app id). [form]: POST body (form-encoded). Returns the parsed JSON (exact big integers).
+   */
+  async rest<T = unknown>(method: 'GET' | 'POST', path: string, form: Record<string, string> | null = null, timeoutMs = 30_000): Promise<T> {
+    if (!/^\/api\/v1\/[A-Za-z0-9_\-/.]+(\?[^#]*)?$/.test(path)) throw new IgRequestError('rest', 'bad path');
+    const headers: Record<string, string> = { 'x-ig-app-id': DEFAULT_APP_ID, ...Object.fromEntries(this.headers), 'x-requested-with': 'XMLHttpRequest' };
+    const run = this.page.evaluate(
+      async (o: { url: string; method: string; form: Record<string, string> | null; headers: Record<string, string>; timeout: number }) => {
+        const h: Record<string, string> = { ...o.headers };
+        const csrf = /(?:^|;\s*)csrftoken=([^;]+)/.exec(document.cookie);
+        if (csrf) h['x-csrftoken'] = decodeURIComponent(csrf[1]!);
+        if (o.form) h['content-type'] = 'application/x-www-form-urlencoded';
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), o.timeout);
+        try {
+          const r = await fetch(o.url, { method: o.method, headers: h, body: o.form ? new URLSearchParams(o.form).toString() : undefined, credentials: 'include', signal: ctl.signal });
+          const text = await r.text();
+          return { status: r.status, text: text.length > 16_000_000 ? null : text, finalPath: new URL(r.url).pathname, json: (r.headers.get('content-type') ?? '').includes('json') };
+        } catch (e) {
+          return { status: 0, text: null, finalPath: '', json: false, error: String((e as { name?: string })?.name ?? 'error') };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      { url: `${this.origin}${path}`, method, form, headers, timeout: timeoutMs },
+    );
+    const r = await withTimeout(run, timeoutMs + 5_000);
+    if (!r) throw new IgRequestError('timeout', 'Instagram did not answer in time.');
+    if (r.finalPath.startsWith('/accounts/login') || r.finalPath.startsWith('/challenge')) throw new IgRequestError('login', 'Instagram is logged out.');
+    if (r.status === 0) throw new IgRequestError(r.error === 'AbortError' ? 'timeout' : 'network', 'Instagram could not be reached.');
+    if (r.status === 401 || (r.status === 403 && (r.text ?? '').includes('login_required'))) throw new IgRequestError('login', 'Instagram is logged out.');
+    if (r.status === 429) throw new IgRequestError('http_429', 'Instagram is rate limiting. Try again later.');
+    if (r.status >= 400 || r.text === null || !r.json) throw new IgRequestError(`http_${r.status}`, `Instagram answered ${r.status}.`);
+    try {
+      return parseJsonExact(r.text.replace(/^for \(;;\);/, '')) as T;
+    } catch {
+      throw new IgRequestError('rest', 'Instagram sent an unreadable answer.');
+    }
+  }
+
   /* ------------------------------------------------------------- download */
 
   readonly downloader: Downloader = {

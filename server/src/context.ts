@@ -26,6 +26,7 @@ export interface IgSender {
 /** What the Reels section (igweb/) needs from the live Instagram tab. */
 export interface IgWebSource {
   graphql<T>(name: string, variables: unknown): Promise<T>;
+  rest<T>(method: 'GET' | 'POST', path: string, form?: Record<string, string> | null): Promise<T>;
   downloader: Downloader;
   /** The logged-in account's Instagram id. */
   meId: string | null;

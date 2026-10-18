@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatSummary, WebPost } from '../../../shared/api';
+import type { ChatSummary, WebComment, WebPost } from '../../../shared/api';
 import { api, errorMessage } from '../api/client';
 import { Icon } from '../components/Icon';
 import { Avatar, EmptyState, ErrorNote, Spinner } from '../components/ui';
@@ -17,6 +17,7 @@ export function ReelsPage() {
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(true);
   const [sharing, setSharing] = useState<WebPost | null>(null);
+  const [commenting, setCommenting] = useState<WebPost | null>(null);
   const busy = useRef(false);
 
   const load = useCallback(
@@ -76,6 +77,7 @@ export function ReelsPage() {
             onVisible={setActive}
             onMute={() => setMuted((m) => !m)}
             onShare={() => setSharing(r)}
+            onComments={() => setCommenting(r)}
           />
         ))}
         <div className="reels-end">
@@ -90,6 +92,7 @@ export function ReelsPage() {
         </div>
       </div>
       {sharing ? <ShareSheet reel={sharing} onClose={() => setSharing(null)} /> : null}
+      {commenting ? <CommentsSheet reel={commenting} onClose={() => setCommenting(null)} /> : null}
     </div>
   );
 }
@@ -111,12 +114,30 @@ function Reel(props: {
   onVisible: (i: number) => void;
   onMute: () => void;
   onShare: () => void;
+  onComments: () => void;
 }) {
-  const { reel, index, near, active, muted, onVisible, onMute, onShare } = props;
+  const { reel, index, near, active, muted, onVisible, onMute, onShare, onComments } = props;
   const box = useRef<HTMLElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const [paused, setPaused] = useState(false);
   const [more, setMore] = useState(false);
+  const [liked, setLiked] = useState(reel.liked);
+  const [likes, setLikes] = useState(reel.likeCount);
+  const [likeError, setLikeError] = useState(false);
+
+  const like = async () => {
+    const on = !liked;
+    setLiked(on);
+    setLikes((n) => (n === null ? n : n + (on ? 1 : -1)));
+    setLikeError(false);
+    try {
+      await api.reelLike(reel.id, on);
+    } catch {
+      setLiked(!on);
+      setLikes((n) => (n === null ? n : n + (on ? -1 : 1)));
+      setLikeError(true);
+    }
+  };
   const clip = reel.media.find((m) => m.kind === 'video') ?? reel.media[0]!;
 
   useEffect(() => {
@@ -163,6 +184,7 @@ function Reel(props: {
             muted={muted}
             preload={active ? 'auto' : 'metadata'}
             onClick={toggle}
+            onDoubleClick={() => !liked && void like()}
           />
         ) : clip.poster ? (
           <img className="reel-video" src={clip.poster} alt="" loading="lazy" />
@@ -191,14 +213,14 @@ function Reel(props: {
         </div>
       </div>
       <div className="reel-actions">
-        <span className="reel-action" title="Likes">
+        <button className={liked ? 'reel-action liked' : 'reel-action'} onClick={() => void like()} title={likeError ? 'Instagram did not accept that' : liked ? 'Unlike' : 'Like'} aria-pressed={liked}>
           <Icon name="heart" size={26} />
-          <small>{compact(reel.likeCount)}</small>
-        </span>
-        <span className="reel-action" title="Comments">
+          <small>{likeError ? '!' : compact(likes)}</small>
+        </button>
+        <button className="reel-action" onClick={onComments} title="Comments">
           <Icon name="comment" size={26} />
           <small>{compact(reel.commentCount)}</small>
-        </span>
+        </button>
         <button className="reel-action" onClick={onShare} title="Send to a chat" disabled={!reel.code}>
           <Icon name="send" size={26} />
           <small>Send</small>
@@ -287,6 +309,114 @@ function ShareSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }) {
             {sending ? <Spinner size={18} /> : sent ? 'Sent' : picked.length > 1 ? `Send separately (${picked.length})` : 'Send'}
           </button>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+function ago(ts: number): string {
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
+  if (s < 86400) return `${Math.round(s / 3600)}h`;
+  if (s < 86400 * 7) return `${Math.round(s / 86400)}d`;
+  return `${Math.round(s / (86400 * 7))}w`;
+}
+
+function CommentsSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }) {
+  const [items, setItems] = useState<WebComment[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(
+    async (cursor: string | null) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const page = await api.reelComments(reel.id, cursor);
+        setItems((old) => (cursor ? [...old, ...page.items.filter((c) => !old.some((o) => o.id === c.id))] : page.items));
+        setNext(page.next);
+      } catch (e) {
+        setError(errorMessage(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [reel.id],
+  );
+
+  useEffect(() => {
+    void load(null);
+  }, [load]);
+
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+
+  const post = async () => {
+    setPosting(true);
+    setError(null);
+    try {
+      const r = await api.reelComment(reel.id, text);
+      if (r.comment) setItems((old) => [r.comment!, ...old]);
+      setText('');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" role="dialog" aria-label="Comments" onClick={(e) => e.stopPropagation()}>
+        <header className="sheet-head">
+          <b>Comments</b>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </button>
+        </header>
+        <div className="sheet-list comments-list">
+          {items.map((c) => (
+            <div key={c.id} className="comment">
+              <Avatar id={c.user.id} name={c.user.username} url={c.user.avatar} size={32} />
+              <div className="comment-body">
+                <div>
+                  <b>{c.user.username}</b> <span className="comment-text">{c.text}</span>
+                </div>
+                <small className="muted">
+                  {ago(c.createdAt)}
+                  {c.likeCount ? ` · ${compact(c.likeCount)} likes` : ''}
+                  {c.replyCount ? ` · ${c.replyCount} replies` : ''}
+                </small>
+              </div>
+            </div>
+          ))}
+          {loading ? <Spinner /> : null}
+          {!loading && !items.length && !error ? <p className="muted small">No comments yet.</p> : null}
+          {!loading && next ? (
+            <button className="btn ghost" onClick={() => void load(next)}>
+              More comments
+            </button>
+          ) : null}
+        </div>
+        <ErrorNote error={error} />
+        <form
+          className="sheet-foot comment-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim() && !posting) void post();
+          }}
+        >
+          <input placeholder="Add a comment…" value={text} onChange={(e) => setText(e.target.value)} maxLength={2200} />
+          <button className="btn primary" disabled={!text.trim() || posting}>
+            {posting ? <Spinner size={18} /> : 'Post'}
+          </button>
+        </form>
       </div>
     </div>
   );

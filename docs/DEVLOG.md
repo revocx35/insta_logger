@@ -54,3 +54,7 @@
   Web's reels query inside the tab, videos via opaque refs fetched through the browser, share = send the reel link.
   Query ids/variables were read from Instagram Web's bundles and its own /reels/ requests (owner allowed it; Claude
   Code's classifier flags this kind of work, ask before more Instagram probing). e2e 49 checks.
+- Owner reported: reels like/comment buttons did nothing (they were display-only), and no chats in the log. Chats: the
+  inbox query had a new doc id and no longer accepts the AIGM relay provider (field_exception, mailbox null); fixed ids
+  and variables from the inbox page's own request, made null mailbox an error and re-run an import that found nothing.
+  Reels: like/unlike (+ double-click), comments sheet with paging and posting. e2e 53 checks.

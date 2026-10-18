@@ -10,6 +10,7 @@ import type {
   RecoverResponse,
   RotateRecoveryKeyResponse,
   SearchResponse,
+  WebComment,
   WebPage,
   WebPost,
   SendMediaKind,
@@ -129,6 +130,10 @@ export const api = {
   vncCredentials: () => request<VncCredentials>('GET', '/api/vnc/credentials'),
 
   chats: () => request<ChatSummary[]>('GET', '/api/chats'),
+  reelComments: (id: string, cursor?: string | null) =>
+    request<WebPage<WebComment>>('GET', `/api/reels/${enc(id)}/comments${cursor ? `?cursor=${enc(cursor)}` : ''}`),
+  reelLike: (id: string, like: boolean) => request<{ ok: true }>('POST', `/api/reels/${enc(id)}/like`, { like }),
+  reelComment: (id: string, text: string) => request<{ comment: WebComment | null }>('POST', `/api/reels/${enc(id)}/comments`, { text }),
   reels: (cursor?: string | null) => request<WebPage<WebPost>>('GET', `/api/reels${cursor ? `?cursor=${enc(cursor)}` : ''}`),
   messages: (chatId: string, before?: string | null, limit = 60) =>
     request<MessagePage>('GET', `/api/chats/${enc(chatId)}/messages?limit=${limit}${before ? `&before=${enc(before)}` : ''}`),

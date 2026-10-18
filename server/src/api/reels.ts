@@ -1,16 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { WebPage, WebPost } from '../../../shared/api.js';
+import type { WebComment, WebPage, WebPost } from '../../../shared/api.js';
 import type { AppContext } from '../context.js';
 import { AppError, Errors } from '../errors.js';
 import { toAppError } from '../ig/sender.js';
-import { IgReels } from '../igweb/client.js';
+import { COMMENT_MAX, IgReels, MEDIA_ID } from '../igweb/client.js';
 import { MediaRefs } from '../igweb/media.js';
 import { parseRange } from './media.js';
 
 /**
  * The Reels section: Instagram's reels feed through the server's Instagram session, and its videos through the
- * server's browser. Nothing is stored; sharing a reel to a chat uses the normal send route (its link).
+ * server's browser, its comments, liking and commenting. Nothing is stored; sharing a reel to a chat uses the normal
+ * send route (its link).
  */
 export function registerReelsRoutes(app: FastifyInstance, ctx: AppContext): void {
   const origin = ctx.config.igWebOrigin;
@@ -28,6 +29,37 @@ export function registerReelsRoutes(app: FastifyInstance, ctx: AppContext): void
     } catch (e) {
       throw e instanceof AppError ? e : toAppError(e);
     }
+  });
+
+  const call = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (e) {
+      throw e instanceof AppError ? e : toAppError(e);
+    }
+  };
+  const idParam = z.object({ id: z.string().regex(MEDIA_ID) });
+
+  app.get('/api/reels/:id/comments', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { cursor } = z.object({ cursor: z.string().min(1).max(1200).optional() }).strict().parse(req.query);
+    const page: WebPage<WebComment> = await call(() => reels.comments(id, cursor ?? null));
+    return page;
+  });
+
+  app.post('/api/reels/:id/like', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { like } = z.object({ like: z.boolean() }).strict().parse(req.body);
+    await call(() => reels.like(id, like));
+    return { ok: true };
+  });
+
+  app.post('/api/reels/:id/comments', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { text } = z.object({ text: z.string().trim().min(1).max(COMMENT_MAX) }).strict().parse(req.body);
+    const comment: WebComment | null = await call(() => reels.comment(id, text));
+    ctx.repo.audit('reel_commented', req.ip);
+    return { comment };
   });
 
   app.get('/api/reels/media/:ref', { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (req, reply) => {

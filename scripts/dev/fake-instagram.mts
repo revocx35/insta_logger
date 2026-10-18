@@ -311,6 +311,28 @@ const server = http.createServer((req, res) => {
       } else res.writeHead(404).end();
       return;
     }
+    // Reels: comments, likes, new comments (Instagram Web's REST endpoints).
+    const rm = /^\/api\/v1\/(media\/(\d+)\/comments|web\/likes\/(\d+)\/(like|unlike)|web\/comments\/(\d+)\/add)\/$/.exec(p);
+    if (rm) {
+      const okHeaders = req.headers['x-csrftoken'] === 'CSRF_TOKEN_x' && !!req.headers['x-ig-app-id'];
+      if (!sessionOf(req)) return void res.writeHead(401, { 'content-type': 'application/json' }).end('{"message":"login_required","status":"fail"}');
+      const json = (v: unknown) => void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(fakeUrls(v)));
+      const who = { pk: '888', username: 'commenter', full_name: 'Com Menter', profile_pic_url: `${CDN}/commenter.jpg` };
+      if (rm[2] && req.method === 'GET') {
+        log.push({ kind: 'reel_comments', ok: okHeaders, detail: { id: rm[2], minId: url.searchParams.get('min_id') } });
+        const page2 = url.searchParams.get('min_id') === 'C_P2';
+        return json({ comments: page2 ? [{ pk: '17000000000000003', text: 'third', created_at: 1792000000, user: who }] : [{ pk: '17000000000000001', text: 'first!', created_at: 1792000000, comment_like_count: 2, user: who }, { pk: '17000000000000002', text: 'second', created_at: 1792000100, user: who }], has_more_headload_comments: !page2, next_min_id: page2 ? null : 'C_P2', status: 'ok' });
+      }
+      if (rm[3] && req.method === 'POST') {
+        log.push({ kind: 'reel_like', ok: okHeaders, detail: { id: rm[3], action: rm[4] } });
+        return json({ status: 'ok' });
+      }
+      if (rm[5] && req.method === 'POST') {
+        const form = new URLSearchParams((await body(req)).toString());
+        log.push({ kind: 'reel_comment', ok: okHeaders, detail: { id: rm[5], text: form.get('comment_text') } });
+        return json({ id: '17000000000000099', text: form.get('comment_text'), created_at: Math.floor(Date.now() / 1000), from: { pk: ME_IG, username: 'owner.account', full_name: 'Owner Person' }, status: 'ok' });
+      }
+    }
     if (p === '/api/graphql' && req.method === 'POST') return graphql(req, res);
     if (p === '/ajax/mercury/upload.php' && req.method === 'POST') {
       const data = await body(req);

@@ -276,6 +276,15 @@ async function main() {
   check(clip.status === 200 && clip.buf.subarray(4, 8).toString() === 'ftyp', `reel video served through the browser (${clip.status})`);
   const part = await fetch(`${BASE}${r1!.items[0].media[0].src}`, { headers: { origin: ORIGIN, cookie, range: 'bytes=0-3' } });
   check(part.status === 206 && (await part.arrayBuffer()).byteLength === 4, 'reel video supports range requests');
+  const reelId = r1!.items[0].id as string;
+  const cm = (await api('GET', `/api/reels/${reelId}/comments`)).json as { items: any[]; next: string | null } | null;
+  const cm2 = (await api('GET', `/api/reels/${reelId}/comments?cursor=${cm?.next}`)).json as { items: any[] } | null;
+  check(cm?.items.length === 2 && cm.items[0].text === 'first!' && cm.next === 'C_P2' && cm2?.items[0]?.text === 'third', 'reel comments, paged');
+  check((await api('POST', `/api/reels/${reelId}/like`, { like: true })).status === 200 && (await api('POST', `/api/reels/${reelId}/like`, { like: false })).status === 200, 'like and unlike a reel');
+  const posted = await api('POST', `/api/reels/${reelId}/comments`, { text: 'great reel' });
+  check(posted.status === 200 && posted.json?.comment?.text === 'great reel', 'comment on a reel');
+  const rl = (await fakeLog()).log;
+  check(rl.some((e) => e.kind === 'reel_like' && e.ok && e.detail?.action === 'like') && rl.some((e) => e.kind === 'reel_like' && e.detail?.action === 'unlike') && rl.some((e) => e.kind === 'reel_comment' && e.ok && e.detail?.text === 'great reel'), 'likes and comments reached Instagram with the CSRF token');
   const share = await api('POST', `/api/chats/${CHAT}/send`, { text: `https://www.instagram.com/reel/${r1!.items[0].code}/` });
   check(share.status === 200 && (await fakeLog()).log.some((e) => e.kind === 'sent_text' && e.detail?.text === 'https://www.instagram.com/reel/FAKEREEL1/'), 'a reel is shared into a chat as its link');
 

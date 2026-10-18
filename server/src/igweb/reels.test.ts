@@ -90,6 +90,7 @@ describe('IgReels', () => {
     const calls: { name: string; vars: Record<string, unknown> }[] = [];
     const src: IgWebSource = {
       meId: '1',
+      rest: async () => { throw new Error('unused'); },
       downloader: { fetch: async () => ({ status: 'error', reason: 'x' }) },
       graphql: async <T>(name: string, vars: unknown) => {
         calls.push({ name, vars: vars as Record<string, unknown> });
@@ -115,5 +116,40 @@ describe('IgReels', () => {
     expect((calls[1]!.vars.data as { seen_reels: string }).seen_reels).toBe('[{"id":"1"}]');
     await expect(r.page('bad cursor!')).rejects.toThrow();
     await expect(new IgReels(() => null, (u) => refs.ref(u)).page(null)).rejects.toThrow(/not connected/);
+  });
+});
+
+describe('IgReels likes and comments', () => {
+  it('uses Instagram Web REST endpoints and maps comments', async () => {
+    const calls: [string, string, Record<string, string> | null | undefined][] = [];
+    const src: IgWebSource = {
+      meId: '1',
+      downloader: { fetch: async () => ({ status: 'error', reason: 'x' }) },
+      graphql: async () => ({}) as never,
+      rest: async <T>(method: 'GET' | 'POST', path: string, form?: Record<string, string> | null) => {
+        calls.push([method, path, form]);
+        if (path.includes('/comments/?')) return { comments: [{ pk: '18062166269531234', text: 'wow', created_at: 1792090941, comment_like_count: 3, user }], has_more_headload_comments: true, next_min_id: 'NEXT' } as T;
+        if (path.includes('/add/')) return { id: '18000000000000001', text: 'nice!', created_at: 1792090999, from: user, status: 'ok' } as T;
+        return { status: 'ok' } as T;
+      },
+    };
+    const refs = new MediaRefs();
+    const r = new IgReels(() => src, (u) => refs.ref(u));
+    const page = await r.comments('4008597565992995700', null);
+    expect(page.items[0]).toMatchObject({ id: '18062166269531234', text: 'wow', likeCount: 3, user: { username: 'natgeo' } });
+    expect(page.next).toBe('NEXT');
+    await r.like('4008597565992995700', true);
+    await r.like('4008597565992995700', false);
+    const c = await r.comment('4008597565992995700', '  nice!  ');
+    expect(c).toMatchObject({ id: '18000000000000001', text: 'nice!' });
+    expect(calls.map((x) => `${x[0]} ${x[1].split('?')[0]}`)).toEqual([
+      'GET /api/v1/media/4008597565992995700/comments/',
+      'POST /api/v1/web/likes/4008597565992995700/like/',
+      'POST /api/v1/web/likes/4008597565992995700/unlike/',
+      'POST /api/v1/web/comments/4008597565992995700/add/',
+    ]);
+    expect(calls[3]![2]).toEqual({ comment_text: 'nice!' });
+    await expect(r.like('../x', true)).rejects.toThrow();
+    await expect(r.comment('1', ' ')).rejects.toThrow();
   });
 });

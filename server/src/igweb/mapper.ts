@@ -1,4 +1,4 @@
-import type { WebMedia, WebPost, WebUser } from '../../../shared/api.js';
+import type { WebComment, WebMedia, WebPost, WebUser } from '../../../shared/api.js';
 
 /*
  * Instagram Web's media/user/comment dicts ("XDT" shapes, the same in REST answers and in the GraphQL `xdt_api__v1__…`
@@ -86,5 +86,22 @@ export function mapPost(raw: unknown, ref: RefFn): WebPost | null {
     media,
     isReel: m.product_type === 'clips',
     location: str(obj(m.location)?.name),
+  };
+}
+
+export function mapComment(raw: unknown, ref: RefFn): WebComment | null {
+  const c = obj(raw);
+  if (!c) return null;
+  const id = str(c.pk) ?? str(c.id);
+  const user = mapUser(c.user, ref);
+  const text = typeof c.text === 'string' ? c.text : null;
+  if (!id || !ID.test(id) || !user || text === null) return null;
+  return {
+    id,
+    user,
+    text,
+    createdAt: (num(c.created_at_utc) ?? num(c.created_at) ?? 0) * 1000,
+    likeCount: num(c.comment_like_count) ?? 0,
+    replyCount: num(c.child_comment_count) ?? 0,
   };
 }

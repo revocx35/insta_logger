@@ -91,9 +91,9 @@ as extra JSON lines with `path`. `{"error":1357001}` = logged out, `1357004` = r
 
 | Query / mutation | Doc id (default) | Variables (main) | Answer |
 |---|---|---|---|
-| PolarisDirectInboxQuery | 27262915580045003 | `device_id_for_iris_subscription` + relay providers | `get_slide_mailbox_for_iris_subscription {id, threads_by_folder, pinned_threads_v2}` |
+| PolarisDirectInboxQuery | 27909866362025854 (2026-10-18; was 27262915580045003) | `device_id_for_iris_subscription` + relay providers | `get_slide_mailbox_for_iris_subscription {id, threads_by_folder, pinned_threads_v2}` |
 | IGDThreadListOffMsysPaginationQuery | 27712934271665380 | `count, cursor, folder: INBOX, id: <viewer messaging id>` | `fetch__SlideMailbox.threads_by_folder` |
-| IGDThreadDetailQuery | 37117700834487428 | `thread_fbid`, `min_uq_seq_id: null`, page count 20 | `get_slide_thread_nullable.as_ig_direct_thread` |
+| IGDThreadDetailQuery | 39768212509458705 (2026-10-18; was 37117700834487428) | `thread_fbid`, `min_uq_seq_id: null`, page count 20 | `get_slide_thread_nullable.as_ig_direct_thread` |
 | IGDMessageListOffMsysQuery | 27502152406082940 | `id, first: 20, after` or `older_than_message_id` | `fetch__SlideThread.as_ig_direct_thread.slide_messages` |
 | IGDirectTextSendMutation | 26911679871773184 | `ig_thread_igid, offline_threading_id, text.sensitive_string_value, reply_to_message_id, send_attribution` | `xig_direct_text_send_with_slide_messaging_response {message_id}` |
 | IGDirectMediaSendMutation | 25766288509716264 | `attachment_fbid, thread_id, offline_threading_id, reply_to_message_id` | `xig_direct_media_send_with_slide_messaging_response` |
@@ -125,3 +125,9 @@ Uploads: multipart `farr` (+ `voice_clip=true`) to `/ajax/mercury/upload.php?<co
   media is the usual XDT media dict (`pk`, `code`, `user`, `caption.text`, `like_count`, `comment_count`,
   `video_versions[] {url, width, height}` progressive MP4, `image_versions2.candidates[]`).
 * A reel link sent as DM text (`https://www.instagram.com/reel/<code>/`) shows as a reel card in Instagram.
+* Comments: `GET /api/v1/media/<pk>/comments/?can_support_threading=true&permalink_enabled=false[&min_id=<next_min_id>]`
+  (checked live 2026-10-18). Likes `POST /api/v1/web/likes/<pk>/like/` · `unlike/`, comment `POST
+  /api/v1/web/comments/<pk>/add/` (`comment_text`): Instagram Web's long-standing endpoints, not yet seen working live.
+* 2026-10-18: Instagram dropped the `PolarisAIGMAccountLabelEnabled` relay provider from the inbox and thread queries;
+  with it (and the old inbox doc id) the inbox answered `{mailbox: null, errors: [1675030 field_exception]}`, which the
+  first import took for an empty inbox. Now a null mailbox is an error, and an import that found no chats runs again.

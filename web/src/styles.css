@@ -1644,6 +1644,39 @@ button.reel-action:disabled {
   opacity: 0.4;
   cursor: default;
 }
+.reel-action.liked {
+  color: var(--danger);
+}
+.comments-list {
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.comment {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.comment-body {
+  min-width: 0;
+  font-size: 0.9em;
+  line-height: 1.35;
+}
+.comment-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-form {
+  flex-direction: row;
+}
+.comment-form input {
+  flex: 1;
+  min-width: 0;
+}
+.comment-form .btn {
+  width: auto;
+}
 .reel-action small {
   font-size: 0.75em;
 }

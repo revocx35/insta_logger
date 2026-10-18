@@ -5,9 +5,9 @@
  * (persisted in app_state, so a restart keeps it).
  */
 export const DEFAULT_DOC_IDS: Record<string, string> = {
-  PolarisDirectInboxQuery: '27262915580045003',
+  PolarisDirectInboxQuery: '27909866362025854',
   IGDThreadListOffMsysPaginationQuery: '27712934271665380',
-  IGDThreadDetailQuery: '37117700834487428',
+  IGDThreadDetailQuery: '39768212509458705',
   IGDMessageListOffMsysQuery: '27502152406082940',
   IGDirectTextSendMutation: '26911679871773184',
   IGDirectMediaSendMutation: '25766288509716264',
