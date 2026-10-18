@@ -13,19 +13,32 @@ logged copy stays viewable and is flagged.
 
 The web UI looks like Instagram's DM view. It can also **send** as the account (text, replies, photos/videos/audio,
 voice messages, reactions, edits, unsend). The live Chromium screen ("Instagram" in the menu) is where the owner logs in
-and answers Instagram's checks.
+and answers Instagram's checks — or the owner pastes a session from their own browser when Instagram keeps asking the
+server's browser for a captcha.
 
-Out of scope on purpose: calls, multiple accounts or tenants, starting new chats, and **view-once / allow-replay media**
-(logged as a placeholder, never downloaded — wa_logger's policy). No Android client (the web UI is responsive).
+Beyond DMs (added 2026-10-18, owner's requests): a **Reels** section (Instagram's reels feed played through the server,
+like/unlike, comments and replies, share a reel into chats as its link), **story logging** (off by default: stories of
+followed or chosen accounts saved encrypted for a chosen number of days, never marked as seen) and a background
+**session refresh** (tab reload every N hours ± random). Everything Instagram sees comes from the server's browser and
+IP, so the server can run in another country than the owner.
+
+Clients: this web UI (responsive) and the native Android client
+[insta_logger_android](https://github.com/revocx35/insta_logger_android) (separate repo, same API).
+
+Out of scope on purpose: calls, multiple accounts or tenants, starting new chats, a full Instagram client (feed,
+profiles, posting), and **view-once / allow-replay media** (logged as a placeholder, never downloaded — wa_logger's
+policy).
 
 ## 2. User flow
 
 1. **Signup** (`/signup`): only while no owner exists; needs `SETUP_TOKEN` from `.env`. Username + password (≥ 12).
 2. **Recovery key** (`/setup/recovery`): shown once; the owner ticks "I saved it".
 3. **Log in to Instagram** (`/setup/link`): the live Chromium screen (noVNC) with Instagram's login page and a status pill
-   (`starting → login/challenge → syncing → ready`). The owner logs in there (2FA and "was this you?" checks too).
+   (`starting → login/challenge → syncing → ready`). The owner logs in there (2FA and "was this you?" checks too), or
+   uses *Captcha keeps coming back? Log in with your own browser* (paste DevTools' "Copy as cURL", `POST /api/ig/session`).
    **Complete** is enabled once the state is `ready`/`syncing`.
-4. **Main** (`/`): two-pane chat UI; menu rail **Chats**, **Unsent**, **Search**, **Instagram**, **Settings**, **Logout**.
+4. **Main** (`/`): two-pane chat UI; menu rail **Chats**, **Reels**, **Stories**, **Unsent**, **Search**, **Instagram**,
+   **Settings**, **Logout**.
 5. Later visits: `/login` (or `/signup`), then `/` (or `/setup/link` if onboarding isn't complete).
 
 ## 3. Containers & networks
@@ -244,8 +257,13 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
 React 19 + Vite + TypeScript SPA, built into the server's static assets. No CDN, no external fonts, no inline scripts
 (strict CSP). `@novnc/novnc` for the Instagram screen, `qrcode` for TOTP enrollment.
 
-Routes: `/signup`, `/login`, `/recover`, `/setup/recovery`, `/setup/link`, `/` (chats), `/chat/:chatId`, `/deleted`
-("Unsent"), `/search`, `/instagram`, `/settings`. A route guard uses `GET /api/state`.
+Routes: `/signup`, `/login`, `/recover`, `/setup/recovery`, `/setup/link`, `/` (chats), `/chat/:chatId`, `/reels`,
+`/stories`, `/deleted` ("Unsent"), `/search`, `/instagram`, `/settings`. A route guard uses `GET /api/state`.
+
+Reels (`pages/Reels.tsx`): vertical snap-scroll, one playing video, refresh, like (double-click too), comments sheet
+with replies, share sheet (chat picker). Stories (`pages/Stories.tsx`): status + *Check now*, account rings with
+counts, grid, full-screen viewer. Settings → Logging also holds the session refresh and story options (interval,
+retention, everyone / chosen accounts with a picker). `components/SessionImport.tsx`: the cookie-paste login panel.
 
 Chat view: date separators; sender names (+ @username) in groups; text rendered by `lib/igText.tsx` (links and
 @mentions only, never HTML; line breaks kept; emoji-only messages large); quoted replies (click to jump); forwarded
@@ -379,9 +397,17 @@ messages(id TEXT PRIMARY KEY /* message_id, album parts "<id>~n" */, alt_id, cha
   INDEX (chat_id, ts), (deleted_at), (media_status='pending'), (media_id), (alt_id)
 message_edits(id, message_id, body_enc, captured_at)
 reactions(message_id, sender_id, emoji_enc, ts, removed_at, PRIMARY KEY(message_id, sender_id))
+-- migration 2 (story logging)
+story_users(id TEXT PRIMARY KEY /* Instagram user id */, username_enc, name_enc, avatar_media_id, avatar_checked_at,
+            last_reel_at /* newest story time fully captured */, updated_at /* last seen in the stories bar */)
+stories(id TEXT PRIMARY KEY /* story media id */, user_id, type /* image|video */, taken_at, expires_at, media_id,
+        status /* pending|downloaded|failed|too_large */, attempts, captured_at)
+  INDEX (taken_at), (user_id, taken_at)
 ```
 Migrations in `server/src/db/db.ts` (append-only). Bodies and edit history share the AAD context `msgbody|<id>`.
-`app_state` keys: `settings`, `onboarding_complete`, `initial_sync_done`, `ig_me`, `ig_doc_ids`.
+`app_state` keys: `settings`, `onboarding_complete`, `initial_sync_done`, `ig_me`, `ig_doc_ids` (`{name: {id, base}}`:
+a learned id is dropped when the code's default changed since). Media `kind`: `message`, `avatar`, `story`.
+Story usernames/names use AAD contexts `story_users|username|<id>` / `story_users|name|<id>`.
 
 ## 8. HTTP API (JSON; DTO types in `shared/api.d.ts`)
 
@@ -465,4 +491,9 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
 * **When Instagram Web changes break something:** live logging depends only on the stream format (docs/instagram-notes.md
   §Stream); history/reconcile/sending depend on GraphQL document ids and response shapes. Doc ids are learned from the
   tab's own requests (`ig_doc_ids` in app_state); defaults in `server/src/ig/docs.ts`. Settings → Instagram shows the
-  time of the last live update. Debug-level logs name failing queries (never content).
+  time of the last live update. Errors name the failing query and, for non-JSON answers, their size and first 12
+  characters (never content). Reels/stories/like/comment query ids and variables were captured from Instagram Web's
+  own pages (docs/instagram-notes.md "Reels", "Stories"); capture with the requests stopped inside the browser
+  (`Fetch.failRequest`) when a write's format is needed.
+* **Owner's deployment (2026-10):** prebuilt images in an unprivileged Proxmox LXC, HTTP mode behind Nginx Proxy
+  Manager (`TRUST_PROXY=2`). Chromium's sandbox works in an unprivileged LXC with `nesting=1`.

@@ -1,12 +1,15 @@
 # insta_logger — notes for Claude sessions
 
 Read these first, every session:
+- `AGENTS.md`: layout, commands, conventions, never-do list and gotchas (the notes for any AI agent).
 - `ARCHITECTURE.md`: the design source of truth (containers, security model, crypto, DB schema, API, config, operations).
 - `docs/instagram-notes.md`: facts about Instagram Web the code relies on (stream format, Slide JSON, GraphQL doc ids).
 - `docs/DEVLOG.md`: what was done when and lessons. Append a section for each session.
 - `progress.md`: checklist of what's done and open.
 
 ## Rules
+- Documentation is part of every change: keep `AGENTS.md`, `ARCHITECTURE.md`, `README.md` and `docs/DEVLOG.md` up to
+  date in the same commit (new features, routes, settings, tables, commands, test counts).
 - Security first: this app stores private messages. Never log or print message content, names, usernames, Instagram
   tokens (`fb_dtsg`, `lsd`, `csrftoken`, `sessionid`) or media links (not even while debugging). Never render message
   text as HTML. Never weaken CSP, cookie flags, network isolation, the Chromium sandbox or its URL policy.
