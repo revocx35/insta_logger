@@ -96,6 +96,7 @@ describe('StoryLogger', () => {
       },
       graphql: async <T>(name: string, vars: unknown) => {
         const ids = (vars as { reel_ids_arr: string[] }).reel_ids_arr;
+        expect((vars as Record<string, unknown>).__relay_internal__pv__PolarisCommunityNoteStoriesLabelEnabledrelayprovider).toBe(true);
         calls.push(`${name} ${ids.join(',')}`);
         return reels(Object.fromEntries(ids.map((id) => [id, items[id] ?? []]))) as T;
       },
@@ -177,6 +178,14 @@ describe('StoryLogger', () => {
     expect((await c.req('PUT', '/api/settings', { storySelected: ['x1'] })).status).toBe(400);
     expect((await c.req('PUT', '/api/settings', { storyCheckMinutes: 5 })).status).toBe(400);
     expect((await c.req('PUT', '/api/settings', { storyCheckMinutes: 120, storyAccounts: 'all' })).body).toMatchObject({ storyCheckMinutes: 120, storyAccounts: 'all' });
+  });
+
+  it('says so when Instagram returns no items for accounts with new stories', async () => {
+    h.ctx.settings.update({ storyLogging: true });
+    items = {};
+    const s = new StoryLogger(h.ctx, () => src);
+    await s.run();
+    expect(s.status().lastResult).toMatch(/no story items/);
   });
 
   it('deletes stories older than the retention, with their files', async () => {

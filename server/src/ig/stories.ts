@@ -28,6 +28,9 @@ const GAP_MS = 1500;
 const MAX_AUTHORS_PER_RUN = 150;
 const MAX_ATTEMPTS = 3;
 const AVATAR_REFRESH_MS = 24 * 3600_000;
+/** Relay provider Instagram Web's story viewer sends (2026-10-19); without it the items come back empty with
+ * `missing_required_variable_value` errors. */
+const STORY_PV = { __relay_internal__pv__PolarisCommunityNoteStoriesLabelEnabledrelayprovider: true };
 
 /** Delay until the next check: the interval ± a random jitter of up to a quarter of it (at most 10 minutes). */
 export function storyDelay(minutes = STORY_INTERVAL_MS / 60_000, random: () => number = Math.random): number {
@@ -192,6 +195,8 @@ export class StoryLogger {
     let fresh = 0;
     let authors = 0;
     let failed = 0;
+    let asked = 0;
+    let returned = 0;
     try {
       const tray = parseTray(await this.paced(() => src.rest<Obj>('GET', '/api/v1/feed/reels_tray/')), src.meId);
       const now = Date.now();
@@ -214,8 +219,10 @@ export class StoryLogger {
       }
       for (let i = 0; i < Math.min(need.length, MAX_AUTHORS_PER_RUN); i += BATCH) {
         const batch = need.slice(i, i + BATCH);
-        const d = await this.paced(() => src.graphql<Obj>('PolarisStoriesV3ReelPageStandaloneQuery', { reel_ids_arr: batch.map((b) => b.id) }));
+        const d = await this.paced(() => src.graphql<Obj>('PolarisStoriesV3ReelPageStandaloneQuery', { reel_ids_arr: batch.map((b) => b.id), ...STORY_PV }));
+        asked += batch.length;
         for (const reel of parseReels(d)) {
+          returned += reel.items.length;
           const entry = batch.find((b) => b.id === reel.userId);
           let complete = true;
           let got = 0;
@@ -235,6 +242,12 @@ export class StoryLogger {
           if (got) authors++;
           if (complete && entry) repo.setStoryUserFields(entry.id, { last_reel_at: entry.latest });
         }
+      }
+      if (asked && !returned) {
+        // Accounts with new stories but no items at all: Instagram changed the query (doc id or variables).
+        this.lastResult = 'Instagram returned no story items (its story query may have changed)';
+        log.warn({ asked }, 'story query returned no items');
+        return;
       }
       this.lastResult = fresh ? `${fresh} new ${fresh === 1 ? 'story' : 'stories'} from ${authors} ${authors === 1 ? 'account' : 'accounts'}${failed ? `, ${failed} failed` : ''}` : failed ? `${failed} downloads failed` : 'No new stories';
       if (fresh || failed) log.info({ fresh, authors, failed }, 'stories checked');

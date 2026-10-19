@@ -143,7 +143,11 @@ Uploads: multipart `farr` (+ `voice_clip=true`) to `/ajax/mercury/upload.php?<co
 
 * Stories bar: `GET /api/v1/feed/reels_tray/` → `tray[] {id, reel_type ('user_reel' | live…), latest_reel_media (s),
   seen, user {pk, username, full_name, profile_pic_url}}` (checked live 2026-10-18).
-* Items: `PolarisStoriesV3ReelPageStandaloneQuery` (doc 28449850404637481) `{reel_ids_arr: [<user id>, …]}` →
+* Items: `PolarisStoriesV3ReelPageStandaloneQuery` (doc 28449850404637481) `{reel_ids_arr: [<user id>, …],
+  __relay_internal__pv__PolarisCommunityNoteStoriesLabelEnabledrelayprovider: true}` (the provider is required since
+  2026-10-19; without it items are empty with `missing_required_variable_value`) →
   `xdt_api__v1__feed__reels_media.reels_media[] {id, user, items[] {pk, taken_at, expiring_at, media_type 1|2,
   image_versions2.candidates[], video_versions[]}}`; the answer also carries non-fatal `errors` (missing relay
-  providers) next to the data. Reading items does not mark them as seen (`PolarisAPIReelSeenMutation` does; never sent).
+  providers) next to the data. Reading items does not mark them as seen (`PolarisStoriesV3SeenMutation` / `PolarisAPIReelSeenMutation` do; never sent).
+* Instagram's own viewer uses `PolarisStoriesV3ReelPageGalleryQuery` (doc 29306733562261201) `{initial_reel_id,
+  reel_ids, first: 3, last: 2, + the provider}` and `…GalleryPaginationQuery` (doc 28597075096591838).
