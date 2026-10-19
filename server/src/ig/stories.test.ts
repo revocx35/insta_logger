@@ -186,6 +186,11 @@ describe('StoryLogger', () => {
     const s = new StoryLogger(h.ctx, () => src);
     await s.run();
     expect(s.status().lastResult).toMatch(/no story items/);
+    // …and the accounts are not marked as done: once Instagram answers properly, their stories are saved.
+    const now = Math.floor(Date.now() / 1000);
+    items = { '11': [{ pk: '701', t: now - 30 }] };
+    await s.run();
+    expect(h.ctx.repo.getStory('701')?.status).toBe('downloaded');
   });
 
   it('deletes stories older than the retention, with their files', async () => {

@@ -138,6 +138,8 @@ export class StoryLogger {
 
   start(): void {
     this.stopped = false;
+    // Accounts without any saved story are asked again (repairs accounts marked done by an empty answer).
+    this.ctx.repo.resetEmptyStoryUsers();
     if (!this.wired) {
       this.wired = true;
       this.ctx.settings.onChange(() => this.schedule(FIRST_RUN_MS));
@@ -240,7 +242,8 @@ export class StoryLogger {
             }
           }
           if (got) authors++;
-          if (complete && entry) repo.setStoryUserFields(entry.id, { last_reel_at: entry.latest });
+          // Only real items count as captured (an empty answer must not mark the account as done).
+          if (complete && entry && reel.items.length) repo.setStoryUserFields(entry.id, { last_reel_at: entry.latest });
         }
       }
       if (asked && !returned) {

@@ -881,6 +881,11 @@ export class Repo implements DataKeyStore {
     });
   }
 
+  /** Clears `last_reel_at` of accounts that have no saved story (they get asked again). */
+  resetEmptyStoryUsers(): void {
+    this.db.prepare('UPDATE story_users SET last_reel_at = NULL WHERE NOT EXISTS (SELECT 1 FROM stories s WHERE s.user_id = story_users.id)').run();
+  }
+
   storyCount(): number {
     return (this.db.prepare('SELECT COUNT(*) AS n FROM stories').get() as { n: number }).n;
   }
