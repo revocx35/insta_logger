@@ -68,3 +68,4 @@
 - Story settings: check interval (15–720 min), everyone or chosen accounts (picker from accounts seen in the stories bar).
 - Reels preloading: server prefetches the first 4 videos of each page; web/Android warm the next 3 while watching.
 - Story logging didn't save anything live: Instagram's story query now requires the relay provider PolarisCommunityNoteStoriesLabelEnabled (captured from its viewer, seen request blocked); without it items come back empty with missing_required_variable_value. Empty answers are now reported in the status.
+- Stories page: the account row was squashed under the grid (flex column + overflow-x row shrinks to 0); page children no longer shrink.

@@ -1553,6 +1553,11 @@ label.switch {
 .stories-page {
   gap: 14px;
 }
+/* The page scrolls as a flex column: without this the sideways-scrolling account row (overflow-x) shrinks to
+   nothing once the grid is taller than the screen, and the grid covers it. */
+.stories-page > * {
+  flex-shrink: 0;
+}
 .story-authors {
   display: flex;
   gap: 14px;
