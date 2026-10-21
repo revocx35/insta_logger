@@ -3,7 +3,8 @@ import type { IgState, IgStatus } from '../../../shared/api.js';
 import type { AppContext, IgController, IgWebSource } from '../context.js';
 import { IgClient } from './api.js';
 import { refreshAvatars } from './avatars.js';
-import { cdpReachable, classifyUrl, closeOtherTabs, pickInstagramTab, resolveBrowserUrl, type PageKind } from './browser.js';
+import { classifyUrl, closeOtherTabs, pickInstagramTab, type PageKind } from './browser.js';
+import { ChromiumLink, type CdpTarget } from './chromium.js';
 import type { RawDelta } from './dgw.js';
 import { DocIds } from './docs.js';
 import { Ingest, type Me } from './ingest.js';
@@ -121,6 +122,7 @@ export class IgService implements IgController {
     );
     this.sender = new Sender(ctx, live, (chatId) => this.threadIdOf(chatId));
     this.stories = new StoryLogger(ctx, () => this.webSource());
+    this.chromium = ChromiumLink.fromConfig(ctx.config);
   }
 
   readonly stories: StoryLogger;
@@ -166,6 +168,9 @@ export class IgService implements IgController {
 
   /* ------------------------------------------------------ lifecycle */
 
+  /** This tenant's Chromium instance in the chromium container (started on demand, own unix user). */
+  readonly chromium: ChromiumLink;
+
   async start(): Promise<void> {
     if (!this.ctx.config.igEnabled || !this.ctx.repo.hasOwner()) return;
     if (this.browser || this.connecting || this.watchTimer) return;
@@ -182,17 +187,19 @@ export class IgService implements IgController {
     const gen = ++this.generation;
     if (fresh) this.setState('starting', 'Connecting to Chromium…');
     try {
-      const browserURL = await resolveBrowserUrl(this.ctx.config.chromiumHost, this.ctx.config.cdpPort);
-      if (!(await cdpReachable(browserURL))) throw new Error('Chromium is not reachable yet');
+      // Starts this tenant's Chromium in the chromium container when it is not running yet.
+      await this.chromium.ensure();
+      if (!(await this.chromium.reachable())) throw new Error('Chromium is not reachable yet');
+      const target = this.chromium.cdpTarget();
       // Logged out, or on a login/check page: keep hands off the tab until the login is done.
-      const look = await lookAtTab(browserURL, this.ctx.config.igWebOrigin);
+      const look = await lookAtTab(target, this.ctx.config.igWebOrigin);
       if (gen !== this.generation) return;
       if (nextLoginStep(look, { fresh, strayPolls: 0 }) !== 'attach') {
         this.attempt = 0;
-        this.watchLogin(gen, browserURL, look, fresh);
+        this.watchLogin(gen, target, look, fresh);
         return;
       }
-      const browser = await puppeteer.connect({ browserURL, defaultViewport: null, protocolTimeout: 180_000 });
+      const browser = await puppeteer.connect({ ...(await this.chromium.connectOptions()), defaultViewport: null, protocolTimeout: 180_000 });
       if (gen !== this.generation) {
         await browser.disconnect();
         return;
@@ -332,12 +339,13 @@ export class IgService implements IgController {
     if (!this.ctx.config.igEnabled) throw Errors.unavailable('Instagram is not enabled.');
     if (this.state === 'ready' || this.state === 'syncing') throw Errors.conflict('Instagram is already logged in. Log it out first.');
     const origin = this.ctx.config.igWebOrigin;
-    const browserURL = await resolveBrowserUrl(this.ctx.config.chromiumHost, this.ctx.config.cdpPort);
-    if (!(await cdpReachable(browserURL))) throw Errors.unavailable('The browser is not running yet. Try again in a moment.');
-    await setSessionCookies(browserURL, origin, cookies);
-    const look = await lookAtTab(browserURL, origin);
+    await this.chromium.ensure();
+    if (!(await this.chromium.reachable())) throw Errors.unavailable('The browser is not running yet. Try again in a moment.');
+    const target = this.chromium.cdpTarget();
+    await setSessionCookies(target, origin, cookies);
+    const look = await lookAtTab(target, origin);
     if (look.userId === null) throw Errors.validation('The browser did not take these cookies.');
-    await steerTab(browserURL, look.tab, { goto: `${origin}/direct/inbox/` });
+    await steerTab(target, look.tab, { goto: `${origin}/direct/inbox/` });
     if (!this.watchTimer && !this.browser && !this.connecting) {
       // Not watching (e.g. waiting to reconnect after an error): connect now.
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -530,7 +538,7 @@ export class IgService implements IgController {
    * is and whether the cookie jar holds a session, opens the login page when needed, and attaches (connect) once the
    * login is done.
    */
-  private watchLogin(gen: number, browserURL: string, first: TabLook, fresh: boolean): void {
+  private watchLogin(gen: number, target: CdpTarget, first: TabLook, fresh: boolean): void {
     const origin = this.ctx.config.igWebOrigin;
     let stray = 0;
     let failures = 0;
@@ -545,8 +553,8 @@ export class IgService implements IgController {
       }
       this.setLoginState(look.kind);
       stray = next === 'wait' && look.kind !== 'login' && look.kind !== 'challenge' ? stray + 1 : 0;
-      if (next === 'open_login') await steerTab(browserURL, look.tab, { goto: `${origin}/accounts/login/` });
-      else if (next === 'reload') await steerTab(browserURL, look.tab, { reload: true });
+      if (next === 'open_login') await steerTab(target, look.tab, { goto: `${origin}/accounts/login/` });
+      else if (next === 'reload') await steerTab(target, look.tab, { reload: true });
     };
     const settle = (p: Promise<void>) =>
       p
@@ -565,7 +573,7 @@ export class IgService implements IgController {
     this.watchTimer = setInterval(() => {
       if (busy || gen !== this.generation) return;
       busy = true;
-      void settle(lookAtTab(browserURL, origin).then((look) => act(look, false)));
+      void settle(lookAtTab(target, origin).then((look) => act(look, false)));
     }, LOGIN_POLL_MS);
     this.watchTimer.unref();
     void settle(act(first, fresh));

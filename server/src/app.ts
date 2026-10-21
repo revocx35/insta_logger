@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { registerAdminRoutes } from './api/admin.js';
 import { registerChatRoutes } from './api/chats.js';
 import { registerEventRoutes } from './api/events.js';
+import { registerInternalRoutes } from './api/internal.js';
 import { registerMediaRoutes } from './api/media.js';
 import { registerReelsRoutes } from './api/reels.js';
 import { registerStoryRoutes } from './api/stories.js';
@@ -35,7 +36,8 @@ export async function createApp(
   if (opts.ig) ctx.ig = opts.ig(ctx);
   const app = await buildServer(ctx);
   registerStateRoutes(app, ctx);
-  registerAuthRoutes(app, ctx);
+  const auth = registerAuthRoutes(app, ctx);
+  registerInternalRoutes(app, ctx, auth);
   registerChatRoutes(app, ctx);
   registerMediaRoutes(app, ctx);
   registerReelsRoutes(app, ctx);

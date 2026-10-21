@@ -86,6 +86,11 @@ export class AppContext {
     return this.writerInstance;
   }
 
+  /** Drops the encryptor after the account's keys were replaced (wipe); the next writer() builds a new one. */
+  resetWriter(): void {
+    this.writerInstance = null;
+  }
+
   mediaMaxBytes(): number {
     return this.settings.get().mediaMaxMb * 1024 * 1024;
   }

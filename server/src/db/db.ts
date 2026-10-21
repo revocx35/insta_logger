@@ -190,6 +190,24 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX stories_user ON stories (user_id, taken_at);
     `,
   },
+  {
+    id: 3,
+    name: 'pending_claim',
+    // Multi-user: an account the admin created (mode 'new', no owner row yet) or whose password the admin reset
+    // (mode 'reset', owner row kept). The user proves the temporary password and sets their own.
+    sql: `
+      CREATE TABLE pending_claim (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        username TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('new', 'reset')),
+        salt BLOB NOT NULL,
+        auth_hash BLOB NOT NULL,
+        failed_logins INTEGER NOT NULL DEFAULT 0,
+        locked_until INTEGER,
+        created_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openDb(file: string): DB {

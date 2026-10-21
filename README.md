@@ -117,8 +117,9 @@ Update with `docker compose pull && docker compose up -d`. Pin a release with `I
 #
 # Services:
 #   caddy    : TLS termination, the only service with published ports
-#   app      : Node server + web UI (no internet access: internal networks only)
-#   chromium : Instagram in a sandboxed, policy-locked Chromium (only this talks to Instagram)
+#   app      : Node supervisor + gateway + one worker per user (no internet access: internal networks only)
+#   chromium : Instagram Web in a sandboxed, policy-locked Chromium, one browser per user (the only service that
+#              talks to Instagram)
 # Pin a release with IGL_VERSION=x.y.z in .env (default: latest).
 
 name: insta_logger
@@ -145,11 +146,16 @@ services:
     ports:
       - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${HTTPS_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+      # Extra ports for users the admin keeps off the default port (user management). Closed to the network by default:
+      # set EXTRA_BIND=0.0.0.0 (or your LAN address) when the reverse proxy for those users runs on another host.
+      - "${EXTRA_BIND:-127.0.0.1}:${EXTRA_PORTS:-8101-8110}:${EXTRA_PORTS:-8101-8110}"
     # Caddyfile = HTTPS (Let's Encrypt / internal CA); Caddyfile.http = plain HTTP behind your own TLS proxy.
     command: ["caddy", "run", "--config", "/etc/caddy/${CADDY_CONFIG:-Caddyfile}", "--adapter", "caddyfile"]
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?create .env first (bash setup.sh)}
       CADDY_TLS: ${CADDY_TLS:-internal}
+      CADDY_CONFIG: ${CADDY_CONFIG:-Caddyfile}
+      EXTRA_PORTS: ${EXTRA_PORTS:-8101-8110}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
@@ -166,31 +172,47 @@ services:
     image: ghcr.io/revocx35/insta_logger-app:${IGL_VERSION:-latest}
     restart: unless-stopped
     <<: *hardening
+    # The supervisor (PID 1's child) starts the gateway and one worker per user under their own unix users: it needs
+    # exactly these capabilities (KILL: to stop a worker that runs as another user), everything else stays dropped. The
+    # processes it starts hold none.
+    cap_add: [SETUID, SETGID, CHOWN, KILL]
     env_file:
       - .env
     environment:
       DATA_DIR: /data
+      USERS_DIR: /users
       PORT: "8080"
       HOST: 0.0.0.0
-      CHROMIUM_HOST: chromium
+      CHROMIUM_URL: http://chromium:9223
+      # Shared with the chromium container only; the supervisor derives each user's browser token from it. (Releases
+      # before user management used VNC_PASSWORD for the VNC server: it is the fallback so existing .env files work.)
+      CONTROL_SECRET: ${CONTROL_SECRET:-${VNC_PASSWORD:?create .env first (bash setup.sh)}}
+      EXTRA_PORTS: ${EXTRA_PORTS:-8101-8110}
       # 1 = only the bundled Caddy; 2 = Caddy + your own reverse proxy in front (HTTP mode).
       TRUST_PROXY: ${TRUST_PROXY:-1}
     volumes:
       - app_data:/data
+      - app_users:/users
     tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /tmp:rw,noexec,nosuid,nodev,size:64m
+      # Control socket and one socket directory per user worker.
+      - /run/igl:rw,noexec,nosuid,nodev,size:4m,mode:0711
     networks: [edge, backend]
     depends_on:
       chromium:
         condition: service_healthy
-    mem_limit: 1g
-    pids_limit: 256
+    # One Node worker per user (about 200 MB each, more while they download media).
+    mem_limit: ${APP_MEM_LIMIT:-2g}
+    pids_limit: 1024
 
   chromium:
     image: ghcr.io/revocx35/insta_logger-chromium:${IGL_VERSION:-latest}
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
+    # The manager (root) starts every user's browser under that user's own unix user and stops it again: only these four
+    # are needed (KILL: to signal a browser that runs as another user).
+    cap_add: [SETUID, SETGID, CHOWN, KILL]
     security_opt:
       - no-new-privileges:true
       # Docker's default profile + the syscalls Chromium's namespace sandbox needs (sandbox stays ON).
@@ -198,18 +220,25 @@ services:
       - seccomp=./seccomp-chromium.json
     logging: *logging
     environment:
-      VNC_PASSWORD: ${VNC_PASSWORD:?create .env first (bash setup.sh)}
+      CONTROL_SECRET: ${CONTROL_SECRET:-${VNC_PASSWORD:?create .env first (bash setup.sh)}}
+      MAX_INSTANCES: ${MAX_USERS:-10}
       SCREEN: ${SCREEN:-1280x800x24}
+      # The browser's time zone (Instagram compares it with your IP address's location).
+      TZ: ${TZ:-UTC}
       BACKEND_PEER: app
     volumes:
       - chromium_profile:/data
     tmpfs:
-      - /tmp:rw,nosuid,nodev,size=512m
-      - /home/chrome:rw,nosuid,nodev,size=256m,uid=10002,gid=10002,mode=0700
-    shm_size: 1gb
+      - /tmp:rw,nosuid,nodev,size:512m
+      # One home directory per user below here (the manager creates them 0700 for the right unix user).
+      - /home/chrome:rw,nosuid,nodev,size:512m,mode:0711
+      # Per-user X authority cookie and VNC password.
+      - /run/igl:rw,noexec,nosuid,nodev,size:8m,mode:0711
+    shm_size: ${CHROMIUM_SHM:-2gb}
     networks: [backend, egress]
-    mem_limit: 2500m
-    pids_limit: 1024
+    # Every active user runs a Chromium of about 1.5 GB: raise this with MAX_USERS.
+    mem_limit: ${CHROMIUM_MEM_LIMIT:-6g}
+    pids_limit: 4096
     stop_grace_period: 20s
 
 
@@ -223,6 +252,8 @@ networks:
 
 volumes:
   app_data: {}
+  # Every user but the first (the first account's data stays in app_data).
+  app_users: {}
   chromium_profile: {}
   caddy_data: {}
   caddy_config: {}
@@ -295,6 +326,35 @@ The app pauses media downloads when that filesystem has less than 2 GB free, so 
 | Other ports | `--https-port 8443 --http-port 8080` |
 
 For a home setup, the safest option is to **keep it on your LAN or VPN** (WireGuard, Tailscale) and not expose it.
+
+## Multiple users
+
+insta_logger can serve a few people from one stack. The **first account is the admin**: its address (the default port)
+can sit behind a login proxy such as authentik, and the admin hands each other person their own port and address.
+
+1. As the admin, open **Users → Add a user**: username and (optionally) a temporary password. Pick a port (see below)
+   or leave *Default*.
+2. Give the person the temporary password (shown once) and the address of their port. They sign in there, are asked to
+   **choose their own password** (their data is encrypted with a key only their password/recovery key can unwrap, so the
+   admin never sees their messages), and log **their own** Instagram in on their own live screen.
+3. Open the ports you want to use in **Users → Ports** (they come from `EXTRA_PORTS`, default `8101-8110`, published by
+   the bundled Caddy). Point a reverse-proxy host at each port you open. Set that port's *address* so the browser origin
+   is checked exactly (leave it empty to accept the address the proxy forwards).
+4. If those ports are published on `EXTRA_BIND=0.0.0.0` (because your reverse proxy is on another host), firewall the
+   range so only that proxy can reach it.
+
+Each user has separate data, keys, database, unix user and Chromium. The admin sees names, status, ports and an admin
+log — never messages. The admin can disable a user (their sessions end), move them to another port, reset their
+password (they need their recovery key) or **wipe** their account (all data and the Instagram login are deleted), and
+delete them. **The first account cannot be deleted.**
+
+Sizing: each active user runs a Chromium of about 1.5 GB and a Node worker of about 200 MB. Raise `CHROMIUM_MEM_LIMIT`
+(default 6g) and `APP_MEM_LIMIT` (default 2g) with `MAX_USERS`.
+
+**Upgrading a single-user install:** replace the compose file with the new one (the app and chromium containers need
+`cap_add: SETUID SETGID CHOWN KILL`, the app needs the `app_users` volume and the `/run/igl` tmpfs, caddy the
+`EXTRA_PORTS` block), keep your `.env` (`CONTROL_SECRET` falls back to `VNC_PASSWORD`), then
+`docker compose pull && docker compose up -d`. Your existing account is adopted as the admin; everybody signs in again.
 
 ## First run
 
@@ -370,10 +430,11 @@ docker compose down               # stop (data stays in Docker volumes)
 
 **Backups.** Back up the Docker volumes:
 
-- `insta_logger_app_data`: database and media. **Encrypted**; useless without your password or recovery key.
+- `insta_logger_app_data`: the first account's database and media. **Encrypted**; useless without its password or recovery key.
+- `insta_logger_app_users`: every other user's database and media (encrypted, same way) and the user list/ports.
 - `insta_logger_chromium_profile`: **the live Instagram login.** Anyone holding it can use your Instagram account.
   Protect it like a password, or skip it and log in again after a restore.
-- `.env`: secrets (setup token, VNC password).
+- `.env`: secrets (setup token, `CONTROL_SECRET`).
 
 **Reset / uninstall:** `docker compose down -v` deletes **everything**: logs, media and the Instagram login.
 

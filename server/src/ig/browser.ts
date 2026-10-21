@@ -1,23 +1,4 @@
-import dns from 'node:dns/promises';
 import type { Browser, Page } from 'puppeteer';
-
-/**
- * Chromium runs in its own container. Chrome refuses CDP HTTP requests whose Host header is not an
- * IP address or "localhost", so the hostname is resolved to an IP first.
- */
-export async function resolveBrowserUrl(host: string, port: number): Promise<string> {
-  const { address } = await dns.lookup(host, { family: 4 });
-  return `http://${address}:${port}`;
-}
-
-export async function cdpReachable(browserURL: string, timeoutMs = 3000): Promise<boolean> {
-  try {
-    const r = await fetch(`${browserURL}/json/version`, { signal: AbortSignal.timeout(timeoutMs) });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
 
 /** Where the Instagram tab is, as far as insta_logger cares. */
 export type PageKind = 'direct' | 'thread' | 'login' | 'challenge' | 'other' | 'blank';

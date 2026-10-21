@@ -1,4 +1,6 @@
+import WebSocket from 'ws';
 import { classifyUrl, type PageKind } from './browser.js';
+import type { CdpTarget } from './chromium.js';
 
 /*
  * Looking at the Instagram tab without touching it. While Instagram is logged out (or asks for a check), insta_logger
@@ -30,8 +32,8 @@ interface Cookie {
 const TIMEOUT_MS = 10_000;
 
 /** The browser's tabs, from Chromium's HTTP endpoint (attaches to nothing). */
-export async function listTabs(browserURL: string): Promise<TabInfo[]> {
-  const r = await fetch(`${browserURL}/json/list`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+export async function listTabs(target: CdpTarget): Promise<TabInfo[]> {
+  const r = await fetch(`${target.base}/json/list`, { headers: target.headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!r.ok) throw new Error(`tab list: HTTP ${r.status}`);
   const list = (await r.json()) as { id?: unknown; type?: unknown; url?: unknown }[];
   return list
@@ -79,10 +81,10 @@ export class BrowserCdp {
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
   private constructor(private readonly ws: WebSocket) {
-    ws.onmessage = (m) => {
+    ws.on('message', (data: WebSocket.RawData) => {
       let d: { id?: number; result?: unknown; error?: { message?: string } };
       try {
-        d = JSON.parse(String(m.data)) as typeof d;
+        d = JSON.parse(String(data)) as typeof d;
       } catch {
         return;
       }
@@ -91,32 +93,30 @@ export class BrowserCdp {
       this.pending.delete(d.id!);
       if (d.error) p.reject(new Error(`CDP: ${d.error.message ?? 'error'}`));
       else p.resolve(d.result);
-    };
-    ws.onclose = () => {
+    });
+    ws.on('close', () => {
       for (const p of this.pending.values()) p.reject(new Error('CDP connection closed'));
       this.pending.clear();
-    };
+    });
   }
 
-  static async open(browserURL: string): Promise<BrowserCdp> {
-    const r = await fetch(`${browserURL}/json/version`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-    const v = (await r.json()) as { webSocketDebuggerUrl?: unknown };
-    if (typeof v.webSocketDebuggerUrl !== 'string') throw new Error('Chromium sent no browser endpoint');
-    // Chromium names its own loopback address; connect through the relay we reached it on.
-    const ws = new WebSocket(`ws://${new URL(browserURL).host}${new URL(v.webSocketDebuggerUrl).pathname}`);
+  static async open(target: CdpTarget): Promise<BrowserCdp> {
+    // The browser-level WebSocket of the tenant's instance, behind the manager's token-checked relay.
+    const url = await target.wsUrl();
+    const ws = new WebSocket(url, { headers: target.headers });
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => {
         ws.close();
         reject(new Error('CDP connect timed out'));
       }, TIMEOUT_MS);
-      ws.onopen = () => {
+      ws.once('open', () => {
         clearTimeout(t);
         resolve();
-      };
-      ws.onerror = () => {
+      });
+      ws.once('error', () => {
         clearTimeout(t);
         reject(new Error('CDP connect failed'));
-      };
+      });
     });
     return new BrowserCdp(ws);
   }
@@ -152,9 +152,9 @@ export class BrowserCdp {
 }
 
 /** Where the Instagram tab is and whether the browser is logged in to Instagram, without attaching to the tab. */
-export async function lookAtTab(browserURL: string, origin: string): Promise<TabLook> {
-  const tab = pickTab(await listTabs(browserURL), origin);
-  const cdp = await BrowserCdp.open(browserURL);
+export async function lookAtTab(target: CdpTarget, origin: string): Promise<TabLook> {
+  const tab = pickTab(await listTabs(target), origin);
+  const cdp = await BrowserCdp.open(target);
   try {
     const { cookies } = await cdp.send<{ cookies: Cookie[] }>('Storage.getCookies');
     return { tab, kind: tab ? classifyUrl(tab.url, origin) : 'blank', userId: sessionUserId(cookies, origin) };
@@ -164,8 +164,8 @@ export async function lookAtTab(browserURL: string, origin: string): Promise<Tab
 }
 
 /** Loads [url] in the tab (or reloads it), attached for that one command only. Opens a tab when there is none. */
-export async function steerTab(browserURL: string, tab: TabInfo | null, action: { goto: string } | { reload: true }): Promise<void> {
-  const cdp = await BrowserCdp.open(browserURL);
+export async function steerTab(target: CdpTarget, tab: TabInfo | null, action: { goto: string } | { reload: true }): Promise<void> {
+  const cdp = await BrowserCdp.open(target);
   try {
     if (!tab) {
       await cdp.send('Target.createTarget', { url: 'goto' in action ? action.goto : 'about:blank' });
@@ -187,10 +187,10 @@ export async function steerTab(browserURL: string, tab: TabInfo | null, action: 
  * Puts a session from the owner's own browser into the cookie jar (browser-level; no tab attached). Instagram's
  * cookies live on `.instagram.com`, Secure; `sessionid` is HttpOnly. A test origin gets host-only cookies.
  */
-export async function setSessionCookies(browserURL: string, origin: string, cookies: { name: string; value: string }[]): Promise<void> {
+export async function setSessionCookies(target: CdpTarget, origin: string, cookies: { name: string; value: string }[]): Promise<void> {
   const real = /(^|\.)instagram\.com$/.test(new URL(origin).hostname);
   const expires = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
-  const cdp = await BrowserCdp.open(browserURL);
+  const cdp = await BrowserCdp.open(target);
   try {
     await cdp.send('Storage.setCookies', {
       cookies: cookies.map((c) => ({

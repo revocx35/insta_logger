@@ -16,8 +16,20 @@
 - [x] Tests: 148 server unit/integration, 10 web, smoke 23 (real instagram.com login page), fake-Instagram e2e 61
 - [x] Docs: README, ARCHITECTURE, SECURITY, AGENTS, CLAUDE, docs/instagram-notes.md
 
+## Done (2026-10-21, multi-user)
+- [x] Same multi-user design as wa_logger (2026-10-20): supervisor (root, 4 caps) → gateway (uid 10003) + one worker per
+      user (uid 10001 / 10100+id) on unix sockets; system DB in /users/system; chromium container runs a Go manager with
+      one Xvfb+Chromium+x11vnc per user behind per-instance bearer tokens
+- [x] Admin creates users with a temporary password; the user claims it (own keys) or the admin resets (recovery/wipe);
+      per-user ports the admin opens and assigns; the admin API and its audit log
+- [x] Web: Users page (users, ports, admin log), choose-own-password step on login, admin nav entry
+- [x] Upgrade path from a single-user install (tenant 1 keeps /data, /data/profile; the owner is adopted as admin)
+- [x] Tests: 197 server (+11 multi-user worker, +gateway/supervisor suites), Go manager suite, smoke 32, web build
+- [x] Docs updated (AGENTS, ARCHITECTURE, README, SECURITY, CLAUDE, DEVLOG)
+
 ## Open
 - [ ] First run with the owner's real Instagram account (docs/instagram-notes.md "First live check")
 - [ ] Message requests folder in the history import (only INBOX is paged today; requests arrive live)
 - [ ] Voice message format accepted by Instagram (MP4/AAC vs Ogg/Opus) — verify live
+- [ ] Admin/Users screens in the Android client (the server supports them; the app has no user management yet)
 - [x] Publish to GitHub + GHCR (public, 2026-10-18; CI green, images public)

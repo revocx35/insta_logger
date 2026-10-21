@@ -5,8 +5,9 @@
 
 ## 1. What it is
 
-A self-hosted, single-owner, Docker-based **Instagram direct-message logger**, built from wa_logger (same server core,
-crypto, auth, web UI and container design; the WhatsApp layer is replaced by an Instagram one). A real Chromium runs
+A self-hosted, Docker-based **Instagram direct-message logger** for one person or a few (multi-user since
+2026-10-21: §3 "app container: supervisor, gateway, workers" and §6 "Multi-user isolation"), built from wa_logger
+(same server core, crypto, auth, web UI and container design; the WhatsApp layer is replaced by an Instagram one). A real Chromium runs
 Instagram Web in a background container. The app watches it through the Chrome DevTools Protocol and records **every
 message, edit, reaction and media file** of the account's DMs, encrypted at rest. When someone unsends a message, the
 logged copy stays viewable and is flagged.
@@ -25,9 +26,15 @@ IP, so the server can run in another country than the owner.
 Clients: this web UI (responsive) and the native Android client
 [insta_logger_android](https://github.com/revocx35/insta_logger_android) (separate repo, same API).
 
-Out of scope on purpose: calls, multiple accounts or tenants, starting new chats, a full Instagram client (feed,
-profiles, posting), and **view-once / allow-replay media** (logged as a placeholder, never downloaded — wa_logger's
-policy).
+**Multi-user:** the first account is the admin; the admin creates more users in the web UI (name + temporary password)
+and can give each their own port. Every user is a separate tenant: their own Instagram login (own Chromium, own
+session), own encrypted database, own keys, own unix user. A user's data is invisible to the admin and to everyone
+else. The admin sees names, status, ports and an admin log, never content. The web UI is shared; the native Android
+client (insta_logger_android) is not updated for the extra screens yet (users are still separate accounts there).
+
+Out of scope on purpose: calls, **several Instagram accounts for one user**, starting new chats, a full Instagram
+client (feed, profiles, posting), and **view-once / allow-replay media** (logged as a placeholder, never downloaded —
+wa_logger's policy).
 
 ## 2. User flow
 
@@ -41,79 +48,138 @@ policy).
    **Settings**, **Logout**.
 5. Later visits: `/login` (or `/signup`), then `/` (or `/setup/link` if onboarding isn't complete).
 
+**Other users (multi-user).** The admin opens *Users*, adds a user (username, optional temporary password, port) and hands
+over the temporary password (shown once) and the address of that port. The user signs in with it and is **forced to
+choose their own password** (`/api/auth/claim`; their keys are generated at that moment, so the admin, who knew the
+temporary password, never held key material), saves their own recovery key, then logs **their own** Instagram in on
+their own live screen (or pastes a session from their browser) and from there it is the normal experience. A forgotten
+password is reset by the admin in one of two ways: *recovery* (new temporary password; the user proves they hold the
+recovery key; the data stays) or *wipe* (all of the account's data, keys and browser profile are deleted and it starts
+over). The admin can also disable, move to another port and delete users.
+
+
 ## 3. Containers & networks
 
 ```
                 internet
                    │
-          ┌────────┴────────┐   network: public (bridge)      ports 80/443 published
-          │      caddy      │   TLS termination (ACME or internal CA), HTTP→HTTPS
+          ┌────────┴────────┐   network: public (bridge)      ports 80/443 + EXTRA_PORTS published
+          │      caddy      │   TLS termination (ACME or internal CA), HTTP→HTTPS; one site per extra port
           └────────┬────────┘
-                   │ network: edge (internal: true)
+                   │ network: edge (internal: true)           :8080 = default; EXTRA_PORTS 8101-8110 = user ports
           ┌────────┴────────┐
-          │       app       │   Node 24 · Fastify · puppeteer-core (CDP) · SQLite · serves built web UI
-          │  (no internet)  │   volume app_data:/data  (db + encrypted media)
-          └────────┬────────┘
-                   │ network: backend (internal: true)
-                   │   tcp 9223 → CDP (socat → 127.0.0.1:9222)   tcp 5900 → x11vnc
+          │       app       │   supervisor (root, 4 caps) ─┬─ gateway "front" (uid 10003)  the only listener
+          │  (no internet)  │                              └─ worker per user (uid 10001 for the first account,
+          │                 │   Node 24 · Fastify · puppeteer-core (CDP) · SQLite        10100+id for the others)
+          └────────┬────────┘   volumes app_data:/data (first account) · app_users:/users (gateway DB + the others)
+                   │ network: backend (internal: true)   tcp 9223 → chromium manager (bearer token per user)
           ┌────────┴────────┐
-          │    chromium     │   Debian trixie · Chromium (headful, sandbox ON via seccomp profile)
-          │                 │   Xvfb :99 · x11vnc · socat · volume chromium_profile:/data
+          │    chromium     │   manager (Go, root, 4 caps) ─ per user: Xvfb · Chromium (sandbox ON) · x11vnc,
+          │                 │   each under that user's own unix user · volume chromium_profile:/data
           └────────┬────────┘
                    │ network: egress (bridge) → instagram.com / Meta CDNs
                 internet
 ```
 
+### app container: supervisor, gateway, workers
+* **Supervisor** (`server/src/supervisor/`, the container's only root process; capabilities `SETUID SETGID CHOWN KILL`,
+  nothing else, no network listener). It creates the directories, starts the gateway and one worker per tenant under that
+  tenant's unix user (`spawn` with `uid`/`gid`, supplementary groups cleared), restarts them with backoff, and serves a
+  one-line-JSON control protocol on `/run/igl/ctl/ctl.sock` (directory `root:front 0750`): `spawn`, `stop`, `remove`,
+  `reset-browser`, `status`. Workers get a **minimal environment built from scratch** (no setup token, no control secret):
+  their data directory, socket path, a random per-worker internal token, the Chromium manager URL and *their own* browser
+  token. `remove` deletes a tenant's directories (emptied as that tenant: root has no DAC override) and asks the manager to
+  delete its browser profile.
+* **Gateway / front** (`server/src/front/`, uid 10003, `server/src/front.ts`): the only process that listens on the network.
+  It owns the **system database** (`/users/system/system.db`: users, ports, admin log — no credentials, no data), serves the
+  web UI, answers the routes that need to know *who is asking before there is a session* (`/api/state`, signup, login, claim,
+  recover: it picks the worker by username) and the **admin API** (`/api/admin/*`), and forwards every other `/api` request
+  and WebSocket upgrade to the signed-in user's worker over a unix socket. Which worker is decided by the **tenant cookie**
+  (`__Host-igl_tenant`, a number set when the worker answers a sign-in with a session cookie). The tenant cookie is not a
+  credential: pointing it at another tenant just makes that tenant's worker fail to find the session. It sets
+  `X-Forwarded-For/-Proto/-Host` itself (client address by the `TRUST_PROXY` hop count, scheme/host from the configured origin
+  of that port when there is one), drops every client `X-Forwarded-*`/`Forwarded`/`X-IGL-*` header, only forwards plain
+  `/api/…` paths (no dot segments, doubled/encoded slashes, backslashes) and adds the worker's secret token.
+* **Worker** (`server/src/index.ts` with `SOCKET_PATH`, one per tenant, uid per tenant): the former single-user app, unchanged
+  in what it does — own SQLite database and media directory, own key ring, own puppeteer connection, own sessions, throttle
+  and rate limits — listening on a unix socket `/run/igl/w/<id>/s.sock`. The socket's directory is owned by the tenant with
+  group `front`, mode `0710`: only the tenant and the gateway can even reach it, and every request must carry the worker's
+  token (`X-IGL-Internal`, constant-time compare, before anything else). The `/internal/*` routes (provision, info, signup,
+  reset, revoke sessions, unlink) additionally need `X-IGL-Scope: internal`, which only the gateway's own calls carry.
+  Workers have no `SETUP_TOKEN` and no public signup route.
+* **Tenant 1** is the first account. Its data stays where the single-user releases kept it (`/data/insta_logger.db`,
+  `/data/media`, uid 10001) and its browser profile stays `/data/profile` (uid 10002), so an upgrade finds everything in
+  place: at startup the gateway asks worker 1 whether an owner exists and **adopts** it as the admin (`admin_adopted` in the
+  admin log). Everyone else lives in `/users/<id>` (uid `10100+id`) and `/data/u<id>/profile` in the chromium volume.
+  Ids come from an AUTOINCREMENT column and are never reused, so a deleted user's unix user and paths are never inherited.
+* **Ports.** The default listener is `PORT` (8080). The admin opens extra ports (from `EXTRA_PORTS`, e.g. `8101-8110`,
+  published by the caddy container, each forwarded 1:1 to the same port of the app) and assigns each user to one. Each port
+  is its own `http.Server` around the same request handler; **the port a connection arrived on decides who may sign in**:
+  a user signs in only on their port (users without one: the default port), the admin only on the default port, and a
+  session is useless on any other port (checked on every request and upgrade, using the tenant cookie's user). Each extra
+  port can carry the exact browser origin people use there (checked on state-changing requests and WebSocket upgrades;
+  empty = derived from `Host`). This is how the admin's address can sit behind a login proxy such as authentik while a
+  friend gets a separate address without one.
+* Request flow for a signed-in user: browser → caddy → gateway (rate limit, Origin, port policy, tenant cookie) → worker
+  (its own session, CSRF, throttle) → its Chromium through the manager.
 * Two compose files: `docker-compose.yml` builds all three images from source (`Dockerfile`, `chromium/`, `caddy/`),
-  and `deploy/docker-compose.yml` uses the images CI publishes to GHCR (`ghcr.io/revocx35/insta_logger-{app,chromium,caddy}`).
-  The standalone variant only needs `seccomp-chromium.json` and `.env` next to it. The Caddyfile is baked into the
-  caddy image so Caddy keeps a read-only root filesystem (compose `configs.content` cannot be used with `read_only`).
+  and `deploy/docker-compose.yml` uses the images CI publishes to GHCR
+  (`ghcr.io/revocx35/insta_logger-{app,chromium,caddy}`). The standalone variant only needs `seccomp-chromium.json` and
+  `.env` next to it. The Caddyfiles are baked into the caddy image (compose `configs.content` cannot be used with
+  `read_only`); the image's entrypoint (`caddy/extra-ports.sh`) writes one site per `EXTRA_PORTS` port to
+  `/tmp/extra-ports.caddy`, which the Caddyfiles import.
 * HTTP mode (`CADDY_CONFIG=Caddyfile.http`, `setup.sh --http-only`): Caddy serves plain HTTP behind the user's own
   TLS reverse proxy and trusts X-Forwarded-* from private ranges. The app uses `TRUST_PROXY=2` and
   `COOKIE_SECURE=auto`: `Secure`/`__Host-` cookies and HSTS whenever the request arrived over HTTPS.
   * Client IP (used by the login throttle): Nginx Proxy Manager *appends* the address it saw to the client's
     `X-Forwarded-For` (`$proxy_add_x_forwarded_for`), and Caddy, trusting NPM's private address, appends NPM's. The
-    app trusts exactly `TRUST_PROXY` hops from the right (Caddy's socket + NPM's entry), so the client IP is the
-    entry NPM appended, and anything a client puts in front of it is ignored.
+    gateway trusts exactly `TRUST_PROXY` hops from the right (Caddy's socket + NPM's entry), so the client IP is the
+    entry NPM appended, and anything a client puts in front of it is ignored. The gateway hands the workers that one
+    address (they trust one hop: the gateway).
   * The hop count must match reality. Too low (`1` behind NPM): every client looks like NPM, and 5 failures lock the
     per-IP throttle for everyone coming through it. Too high: clients can pick their own IP. Another proxy in front of
     NPM (e.g. Cloudflare) makes it `3`.
   * Caddy trusts any private address, so a LAN host that reaches port 80 directly can claim any client IP and get
-    around the per-IP limit (the global limit still applies). That's why port 80 in HTTP mode should be reachable only
-    from the proxy.
+    around the per-IP limit (the global limit still applies). That's why the published ports in HTTP mode should be
+    reachable only from the proxy. The extra ports are published on `EXTRA_BIND` (default `127.0.0.1`: set `0.0.0.0` or
+    a LAN address only when the proxy for those users runs on another host, and firewall the range).
 * Only **caddy** publishes ports. The **app** has no route to the internet (it sits only on internal networks).
   **chromium** is the only component that talks to Instagram.
-* CDP has no authentication, so it is reachable only on `backend`, where the app is the only other container.
-  Chromium ignores `--remote-debugging-address` in headful mode, so it listens on 127.0.0.1:9222 and
-  `socat` exposes it as `0.0.0.0:9223` inside the container.
-* Chrome rejects CDP HTTP requests whose `Host` header is not an IP or `localhost`. The app therefore
-  **resolves `CHROMIUM_HOST` to an IP** (`dns.lookup`) and connects to `http://<ip>:9223`.
-* x11vnc is protected by `VNC_PASSWORD` (defense in depth). Its port is reachable only on `backend`, and the
-  browser reaches it **only** through the app's authenticated WebSocket bridge `/api/vnc`.
-* Hardening on every container: `no-new-privileges`, `cap_drop: [ALL]` (caddy re-adds `NET_BIND_SERVICE`),
-  non-root users, `read_only` root filesystems with explicit tmpfs mounts, memory limits, healthchecks.
+* The chromium manager (below) is the only way to a browser: CDP and VNC are never exposed. Each request carries the
+  bearer token of one instance, derived as `HMAC-SHA256(CONTROL_SECRET, "igl/chromium/instance/<id>")`; only the
+  supervisor and the manager know `CONTROL_SECRET` (it falls back to `VNC_PASSWORD` for `.env` files from before user
+  management). A worker is handed its own token only.
+* Hardening on every container: `no-new-privileges`, `cap_drop: [ALL]` (caddy re-adds `NET_BIND_SERVICE`; app and chromium
+  re-add `SETUID SETGID CHOWN KILL` for their root supervisor/manager, which hand nothing on to what they start),
+  `read_only` root filesystems with explicit tmpfs mounts, memory and pid limits, healthchecks. This replaces "non-root"
+  for the two containers that must run one process per user under different unix users: the root process is small, has no
+  network listener of its own (the manager's is token-checked) and starts everything else without capabilities.
 * Chromium keeps its **sandbox enabled**. Docker's default seccomp profile blocks the user-namespace syscalls
   the sandbox needs, so `chromium/seccomp-chromium.json` (Docker's default profile plus `clone`, `clone3`,
   `unshare`, `setns`, `chroot` and similar) is applied. **Never ship `--no-sandbox`.** It is available only as an
   explicit escape hatch (`CHROMIUM_NO_SANDBOX=1`) with a startup warning.
 
 ### chromium container
-* `entrypoint.sh` acts as a small supervisor (bash `wait -n` plus restart loops). It removes stale
-  `Singleton*` locks, then starts `Xvfb :99 -screen 0 ${SCREEN}`,
-  `chromium --user-data-dir=/data/profile --remote-debugging-port=9222 --kiosk --no-first-run
-  --no-default-browser-check --password-store=basic --disable-features=Translate,MediaRouter
-  --noerrdialogs --hide-crash-restore-bubble --window-position=0,0 --window-size=W,H about:blank` plus
-  `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows`
-  (a throttled tab would let the message stream's keep-alives lapse),
-  `x11vnc -display :99 -rfbport 5900 -rfbauth … -forever -shared`, and
-  `socat TCP-LISTEN:9223,fork,reuseaddr TCP:127.0.0.1:9222`. Crashed children are restarted.
-* socat and x11vnc listen only on the container's address in the network shared with the app (`BACKEND_PEER`): the
-  entrypoint resolves `app` and takes the source address of the route to it, and accepts it only if that route is
-  on-link (no gateway). Before the app container exists, Docker's DNS forwards the name to the host's resolver, where a
-  search domain can turn `app` into some public address; without the check the relays would listen on the egress
-  network and the app could not reach them (seen on the dev host, 2026-10-17).
-* The healthcheck calls `curl -fs http://127.0.0.1:9222/json/version`.
-* The profile volume **contains the live Instagram login** (cookies). Anyone with it can use the account.
+* `entrypoint.sh` validates the environment, makes the volume root `root:root 0711` (traversable, not listable; each
+  user's directory below is `0700` and theirs) and starts the **manager** (`chromium/manager/`, Go, standard library
+  only, built and tested in the image's first build stage). It answers `/healthz` on loopback at once and listens on its
+  address on the network shared with the app (`BACKEND_PEER`, default `app`) as soon as that exists (the address must lie
+  in one of its own subnets, so a name that resolved to some public address is never used). `LISTEN_ADDR` overrides.
+* **Per user** (`instance.go`), all started on demand by `POST /i/<id>/ensure` and kept alive (restart after 2 s):
+  `Xvfb :100+id -nolisten tcp -nolisten local -auth <Xauthority>` (filesystem socket only, MIT cookie in the user's
+  private run directory), `chromium --user-data-dir=<profile> --remote-debugging-port=<free loopback port> --kiosk
+  --ignore-gpu-blocklist …` (the same flags as the single-user entrypoint, WebGL included) and `x11vnc` on a free
+  loopback port with a random per-start password. Each runs as `uid 10100+id` / own gid (tenant 1: 10002, profile
+  `/data/profile`), with an environment built from scratch (no secrets), `HOME=/home/chrome/u<id>`, `TMPDIR=/tmp/u<id>`;
+  directories are `0700`. Stale profile locks and X sockets are removed *as that user* (root has no DAC override).
+* **API** (`server.go`, every route `/i/<id>/…` needs that instance's token or the admin token): `ensure`, `restart`,
+  `DELETE /i/<id>` (admin token: stop everything and delete the profile), `GET vnc-password`, `GET vnc` (an HTTP
+  `Upgrade: igl-tunnel` raw byte tunnel to x11vnc, wrapped into a WebSocket by the tenant's worker), and the DevTools relay
+  `GET cdp/json/version`, `GET cdp/json/list` (the tab list insta_logger reads while logged out) and the single browser
+  WebSocket `cdp/devtools/browser/<uuid>` (page-level endpoints, `/json/new`, `/json/close` and the inspector are not
+  relayed). `MAX_INSTANCES` (= `MAX_USERS`) caps the browsers.
+* The healthcheck calls `curl -fs http://127.0.0.1:9223/healthz`.
+* The profile volume **contains the live Instagram logins** (cookies). Anyone with it can use the accounts.
 * Managed policy (`chromium/policies.json`): navigation only to `instagram.com`, `cdninstagram.com`, `facebook.com`,
   `fbcdn.net`, `fbsbx.com` (login, 2FA and consent pages and media need them), plus only the reCAPTCHA paths
   `www.google.com/recaptcha/`, `www.gstatic.com/recaptcha/`, `www.recaptcha.net/recaptcha/` (Instagram's login captcha
@@ -127,6 +193,9 @@ policy).
   WebGL renderer "ANGLE (Mesa, llvmpipe …)" like a Linux PC without a GPU driver; without it there was no WebGL at all),
   the server's time zone (`TZ` from `.env`, written by setup.sh), and no debugger attached to the tab while it is logged
   out (§ 5, "Hands off while logged out").
+* Residual risk (also in §6): all browsers share the container's network namespace. A renderer exploit stays inside
+  Chromium's sandbox (which has no network); a full sandbox escape as uid N could reach the other browsers' loopback
+  DevTools ports. Separate containers per user would close that, at the price of a Docker-socket orchestrator.
 
 ## 4. App (server) — `server/`
 
@@ -135,7 +204,15 @@ Tests use vitest.
 
 ```
 server/src/
-  index.ts            bootstrap: config → db → crypto keyring → http → ig (only once an owner exists)
+  index.ts            the tenant WORKER: config → db → crypto keyring → http (unix socket) → ig (only once an owner exists)
+  front.ts, front/    the GATEWAY: system DB (users, ports, admin log), listeners per port, proxy to workers, admin API
+    gateway.ts          Fastify app, port/tenant policy, streaming proxy + WebSocket tunnel, response relay (tenant cookie)
+    auth.ts             /api/state, signup (admin), login/claim/recover routed by username
+    admin.ts            /api/admin/*: overview, create/update/reset/delete users, ports, admin log
+    proxy.ts            HTTP over the worker's unix socket; forwarding-header policy
+    pool.ts             talks to the supervisor's control socket · listeners.ts: the open ports · db.ts: system DB
+  supervisor/         the SUPERVISOR (root, 4 capabilities): directories, gateway + worker processes, control socket, tokens
+  api/internal.ts     worker routes only the gateway may call (provision, info, signup, reset, revoke, unlink)
   config.ts           zod-parsed env (§9); fails fast on bad config
   log.ts              pino with redaction (cookies, auth headers, passwords, tokens, message bodies)
   db/                 connection, migrations (schema §7), repositories
@@ -143,12 +220,13 @@ server/src/
   auth/               signup, login, logout, recovery, TOTP, password; sessions; throttle
   http/               server factory, security headers/CSP, static web UI, error handler, ZIP streaming
   api/                chats, messages, media (Range, ZIP), search, unsent feed, SSE, settings, audit, wipe, sending
-  vnc/                authenticated WebSocket ↔ TCP bridge to chromium:5900
+  vnc/                authenticated WebSocket ↔ the tenant's x11vnc, through the manager's tunnel
   ig/
     service.ts        IgService: connects to Chromium, keeps one Instagram tab on the inbox, login/challenge detection,
                       watchdog, reconnects, timers (reconcile, avatars), applies deltas in order
-    browser.ts        resolve host → IP, CDP reachability, tab choice, URL classification (inbox/thread/login/challenge)
-    loginwatch.ts     while logged out: tab list (HTTP) + cookie jar (browser-level CDP) without attaching to the tab;
+    chromium.ts       ChromiumLink: this tenant's browser through the manager (ensure, CDP relay, VNC tunnel)
+    browser.ts        tab choice, URL classification (inbox/thread/login/challenge)
+    loginwatch.ts     while logged out: tab list + cookie jar (browser-level CDP through the manager) without attaching;
                       opens/reloads the login page with a one-command attach; decides when to attach (pure, tested)
     page.ts           IgPage: own CDP session on the tab — reads the stream (Network.webSocketFrameReceived, also in
                       workers), learns doc ids + headers from the tab's GraphQL requests, runs GraphQL inside the page,
@@ -311,6 +389,31 @@ login), and Instagram's terms of use (automated browser; restriction risk is the
 * After password changes, recovery, 2FA changes and session revocation, the SQLite WAL is checkpointed and
   truncated (`secure_delete=ON` zeroes freed pages), so superseded key wraps don't stay on disk.
 
+### Multi-user isolation
+* **A tenant is a unix user with its own directories, database, keys and browser.** The gateway owns only the user list
+  (names, ports, disabled flag); it never holds a key or a piece of message data. Nothing is shared between tenants: no
+  files, no sockets, no secrets, no database, no browser profile.
+* **Only the gateway listens on the network.** Workers listen on a unix socket in a directory `tenant:front 0710`, so a
+  worker cannot even reach another worker's socket. Every request must carry the worker's random `X-IGL-Internal` token
+  (constant-time compare in an `onRequest` hook, before routing); the `/internal/*` routes need `X-IGL-Scope: internal`
+  as well, which the gateway only adds to its own admin calls, never for a client. The gateway strips every client
+  `X-IGL-*` and `X-Forwarded-*` header and sets its own.
+* **The tenant cookie is a routing hint, not a credential.** It names the tenant; the worker still validates the session
+  cookie against its own database, so a forged or copied tenant cookie gives nothing (and a session of user A pointed at
+  user B's worker is simply unknown there).
+* **Port pinning.** A session only works on the port its user may use (admin: the default port only). The gateway checks
+  this on every request and WebSocket upgrade, and an admin moving or disabling a user closes that user's open streams.
+* **Admin actions are audited and re-authenticated.** Destructive actions (reset, delete) require the admin's password
+  and, when enabled, the 2FA code. The admin log stores names, events, IPs and short details — never passwords, keys,
+  message content or media.
+* **The admin never sees user content.** The admin API exposes names, status (pending/active/disabled), the Instagram
+  connection *state* (a short enum) and the port — not chats, messages, contacts or media. A compromised admin account
+  can delete or reset users (denial of service) and take over their *accounts* (new password + wipe), but cannot read
+  what was logged: the data keys are wrapped by the user's own password/recovery key.
+* **Residual risk.** All browsers share the chromium container's network namespace (see §3); and the app container's root
+  supervisor is trusted (it starts every worker and could read a tenant's memory). Both are trusted components, kept
+  small: the supervisor has no listener and parses only its one-line control protocol.
+
 ### Sessions
 * Cookie `__Host-igl_session` (`Secure; HttpOnly; SameSite=Strict; Path=/`). Value is
   `b64url(sid32).b64url(secret32)`. The DB stores `sha256(sid)` and the owner private key encrypted under
@@ -384,7 +487,17 @@ The logger writes while the owner is logged out, but must not be able to read ol
   request ID and never returned to the client.
 * Logs never contain message content, names, cookies or secrets (pino `redact` plus a code discipline enforced by review).
 
-## 7. Database (SQLite, `/data/insta_logger.db`, WAL, `foreign_keys=ON`, `secure_delete=ON`)
+## 7. Databases
+
+Two SQLite databases, both WAL, `foreign_keys=ON`, `secure_delete=ON`:
+
+* **Tenant database** — `/data/insta_logger.db` for the first account, `/users/<id>/insta_logger.db` for the others;
+  owned and opened only by that tenant's worker.
+* **System database** — `/users/system/system.db`, owned by the gateway (uid 10003): `users(id AUTOINCREMENT, username
+  UNIQUE, role admin|user, disabled, port, created_at, last_login_at)`, `listeners(port, public_origin)`, `audit(...)`.
+  No credentials, no keys, no content.
+
+### Tenant database (per user)
 
 ```sql
 owner, sessions, audit_log, app_state, data_keys, media   -- as in wa_logger (auth, keys, encrypted media files)
@@ -405,6 +518,9 @@ story_users(id TEXT PRIMARY KEY /* Instagram user id */, username_enc, name_enc,
 stories(id TEXT PRIMARY KEY /* story media id */, user_id, type /* image|video */, taken_at, expires_at, media_id,
         status /* pending|downloaded|failed|too_large */, attempts, captured_at)
   INDEX (taken_at), (user_id, taken_at)
+-- migration 3 (multi-user): an admin-issued temporary password (mode 'new': the account has no owner row yet;
+-- mode 'reset': the owner row is kept and the data stays). It guards the account until the user claims it.
+pending_claim(id CHECK (id = 1), username, mode /* new|reset */, salt, auth_hash, failed_logins, locked_until, created_at)
 ```
 Migrations in `server/src/db/db.ts` (append-only). Bodies and edit history share the AAD context `msgbody|<id>`.
 `app_state` keys: `settings`, `onboarding_complete`, `initial_sync_done`, `ig_me`, `ig_doc_ids` (`{name: {id, base}}`:
@@ -436,22 +552,35 @@ Story usernames/names use AAD contexts `story_users|username|<id>` / `story_user
 | GET | /api/deleted?before= · /api/search?q=&chatId= | ✓ | unsent feed · search |
 | POST | /api/chats/:chatId/send · /api/uploads (raw) · /api/chats/:chatId/send-media · DELETE /api/uploads/:id | ✓ | sending |
 | POST | /api/messages/:messageId/react · unsend · edit · /api/chats/:chatId/read | ✓ | |
+| GET | /api/admin/overview · /api/admin/audit | ✓ admin | users, ports, admin log (gateway) |
+| POST | /api/admin/users · /api/admin/users/:id/reset · /delete | ✓ admin | create with temporary password · reset (recovery/wipe) · delete |
+| PATCH | /api/admin/users/:id | ✓ admin | move to another port, disable/enable |
+| PUT/DELETE | /api/admin/ports/:port | ✓ admin | open/close an extra port, set its browser origin |
+| POST | /api/auth/claim · /api/auth/verify · /api/auth/ping · GET /api/auth/whoami | | claim a temporary password · re-check the admin password · gateway's session checks |
+| GET/POST | /internal/* (provision, info, signup, reset, revoke-sessions, unlink) | gateway only | never reachable from outside (token + scope header) |
 | GET | /api/events | ✓ | SSE: `ig_state`, `message`, `message_update`, `chat_update`, `sync_progress`, `session_revoked` |
 | GET/PUT | /api/settings | ✓ | `{downloadHistoryMedia, mediaMaxMb, historyPerChat, readReceipts, sessionRefresh, sessionRefreshHours}` (refresh: reload the tab every 1–24 h ± random ≤ 10 min, default on, 2 h; waits while importing) |
 | GET | /api/audit · POST /api/data/wipe | ✓ (+ password) | audit log · delete all logged data |
 
 ## 9. Configuration (`.env`, generated by `scripts/setup.sh`)
 
-As wa_logger: `SITE_ADDRESS`, `CADDY_TLS`, `PUBLIC_ORIGIN`, `SETUP_TOKEN`, `VNC_PASSWORD`, `COOKIE_SECURE`,
-`CADDY_CONFIG`, `HTTP(S)_PORT`, `HTTP(S)_BIND`, `IGL_VERSION` (image tag), `SESSION_IDLE_HOURS`, `SESSION_MAX_DAYS`,
-`MEDIA_MAX_MB` (100), `HISTORY_PER_CHAT` (100, max 2000), `RECONCILE_MINUTES` (10), `CHROMIUM_HOST`, `CDP_PORT`,
-`VNC_PORT`, `SCREEN`, `LOG_LEVEL`, `TRUST_PROXY` (proxy hop count; see §3). New: `IG_REQUEST_GAP_MS` (1500, pause
-between history/reconcile requests), `IG_ENABLED` (tests), `IG_WEB_ORIGIN` (only the fake-Instagram end-to-end test
-changes it; a startup warning is logged; plain-http media links are accepted only from that origin).
+As wa_logger: `SITE_ADDRESS`, `CADDY_TLS`, `PUBLIC_ORIGIN`, `SETUP_TOKEN`, `COOKIE_SECURE`, `CADDY_CONFIG`,
+`HTTP(S)_PORT`, `HTTP(S)_BIND`, `IGL_VERSION` (image tag), `SESSION_IDLE_HOURS`, `SESSION_MAX_DAYS`, `MEDIA_MAX_MB`
+(100), `HISTORY_PER_CHAT` (100, max 2000), `RECONCILE_MINUTES` (10), `SCREEN`, `LOG_LEVEL`, `TRUST_PROXY` (proxy hop
+count; see §3). Multi-user: `CONTROL_SECRET` (app ↔ chromium only; `VNC_PASSWORD` from older `.env` files is the
+fallback), `MAX_USERS` (10), `EXTRA_PORTS` (8101-8110), `EXTRA_BIND` (127.0.0.1), optional `APP_MEM_LIMIT`,
+`CHROMIUM_MEM_LIMIT`, `CHROMIUM_SHM`. Instagram: `IG_REQUEST_GAP_MS` (1500, pause between history/reconcile requests),
+`IG_ENABLED` (tests), `IG_WEB_ORIGIN` (only the fake-Instagram end-to-end test changes it; a startup warning is logged;
+plain-http media links are accepted only from that origin). Per worker/user (set by the supervisor, not in `.env`):
+`SOCKET_PATH`, `INTERNAL_TOKEN`, `TENANT_ID`, `CHROMIUM_URL`, `CHROMIUM_INSTANCE`, `CHROMIUM_TOKEN`.
 
 ## 10. Testing
 
-* `server` (vitest, 107 tests): crypto, auth flows and route coverage (as wa_logger); `ig/dgw.test.ts` (frames,
+* `server` (vitest, 197 tests): crypto, auth flows and route coverage (as wa_logger); the multi-user parts
+  (`auth/multiuser.test.ts`: /internal routes, temporary-password claim, admin reset recovery/wipe;
+  `front/gateway.test.ts`: setup, user creation, isolation between accounts, port pinning, disable/reset/delete, SSE and
+  WebSocket forwarding, hardening; `supervisor/supervisor.test.ts`: per-tenant processes, minimal environment, tokens,
+  control protocol, removal); `ig/dgw.test.ts` (frames,
   several per message, extended frames, garbage, big ints, protobuf); `ig/mapper.test.ts` (every content type, albums,
   view-once, shares, quotes, edits, reactions, bad ids); `ig/ingest.test.ts` (stream deltas end to end through the
   API: new chat fetch, unsend of messages and albums, edits, reactions incl. removals, seen, chat flags, idempotency,
@@ -462,8 +591,11 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
 * The stream decoder was cross-checked against frames encoded by mautrix-meta's Go implementation (`dgw` +
   `mdCoreSync` protobuf), including the ack bit and a trailing ping (2026-10-18).
 * `web`: vitest for `igText` (links, mentions, injection attempts, hostile input speed), typecheck, production build.
-* `scripts/smoke.sh` (23 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
-  page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox.
+* `scripts/smoke.sh` (32 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
+  page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox, the admin API
+  (and no anonymous access to it), creating a user, `/internal` unreachable from outside, and one unix user per process.
+* `chromium/manager` (Go, `CGO_ENABLED=0 go test ./...`, also run in the image build): token vectors shared with
+  `supervisor/tokens.ts`, the route allowlist (version, tab list, browser WebSocket; nothing else), the VNC tunnel.
 * `scripts/dev/fake-e2e.mts` (61 checks; story logging (off by default, check now, author avatar, no live videos, Range-served video, nothing twice, never seen), reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
   login detection and re-login (nothing attached to the tab while logged out; logging in with a session pasted as
   "Copy as cURL", refused while logged in, never in the logs or DB), history import (3 chats, paging, history photo), live stream message, unsend kept,
@@ -472,6 +604,8 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
   GraphQL request, doc id learned from the page, downtime reconcile (missed message logged, unsent-while-down flagged),
   no plaintext in the DB files, no content or tokens in the app log.
 * `scripts/dev/ui-shots.mts`: screenshots of the UI (light, dark, phone) for checking by eye.
+* `scripts/dev/multiuser-e2e.mts` (against a running stack): unix users and permissions, one Chromium per user, port
+  pinning, claim/reset/wipe/delete for real, no cross-tenant file access.
 * **Not tested against the real Instagram account** (needs the owner's login): live stream shapes, GraphQL answers and
   sending on today's Instagram Web. First live run: see docs/instagram-notes.md "First live check".
 
@@ -485,11 +619,17 @@ changes it; a startup warning is logged; plain-http media links are accepted onl
   (`setup.sh --http-only`); (d) an optional `docker-compose.override.yml` binds the four volumes to a dedicated,
   size-capped filesystem (README "cap storage").
 * **Update:** `docker compose pull && docker compose up -d` (prebuilt) or `git pull && docker compose up -d --build`.
+  **Upgrading from a single-user release:** the new compose file is required (app and chromium get `cap_add:
+  SETUID SETGID CHOWN KILL`, the app gets the `app_users:/users` volume and a `/run/igl` tmpfs, caddy gets
+  `EXTRA_PORTS`). Keep the `.env`: `CONTROL_SECRET` falls back to `VNC_PASSWORD`, and `EXTRA_PORTS`/`MAX_USERS` have
+  defaults. The first sign-in adopts the existing account as the admin; everybody signs in again (sessions are per
+  worker).
   The Instagram login survives restarts (it lives in the Chromium profile). Restarting only `app` does not touch
   Chromium: `docker compose up -d --no-deps app` (the tab is reloaded so the stream socket is seen from its start;
   the reconcile on ready catches what arrived meanwhile).
-* **Backups:** `app_data` (encrypted; useless without the password or recovery key) and `chromium_profile` (the live
-  Instagram login: treat it as a credential).
+* **Backups:** `app_data` and `app_users` (encrypted; useless without each user's password or recovery key) and
+  `chromium_profile` (the live Instagram logins, one per user: treat it as a credential). The system database
+  (`/users/system/system.db` inside `app_users`) holds the user list and ports — back it up with them.
 * **When Instagram Web changes break something:** live logging depends only on the stream format (docs/instagram-notes.md
   §Stream); history/reconcile/sending depend on GraphQL document ids and response shapes. Doc ids are learned from the
   tab's own requests (`ig_doc_ids` in app_state); defaults in `server/src/ig/docs.ts`. Settings → Instagram shows the

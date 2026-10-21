@@ -11,7 +11,7 @@ async function main(): Promise<void> {
 
   if (config.cookieSecure === false) log.warn('COOKIE_SECURE=false — session cookies are sent over plain HTTP. Use only for local development.');
   if (config.cookieSecure === 'auto') log.info('COOKIE_SECURE=auto — cookies are Secure when requests arrive over HTTPS (external reverse proxy).');
-  if (!config.publicOrigin) log.warn('PUBLIC_ORIGIN is not set — Origin checks fall back to the request Host header.');
+  if (!config.publicOrigin && !config.socketPath) log.warn('PUBLIC_ORIGIN is not set — Origin checks fall back to the request Host header.');
   if (config.igWebOrigin !== 'https://www.instagram.com') log.warn({ origin: config.igWebOrigin }, 'IG_WEB_ORIGIN is not Instagram — test setup only.');
 
   const { app, ctx } = await createApp(config, log, { ig: (c) => new IgService(c) });
@@ -20,9 +20,16 @@ async function main(): Promise<void> {
   const sweep = setInterval(() => ctx.repo.deleteExpiredSessions(Date.now(), config.sessionIdleMs), 10 * 60_000);
   sweep.unref();
 
-  await app.listen({ host: config.host, port: config.port });
+  if (config.socketPath) {
+    // Tenant worker behind the gateway: a unix socket inside a directory only the gateway's user can enter.
+    fs.rmSync(config.socketPath, { force: true });
+    await app.listen({ path: config.socketPath });
+    fs.chmodSync(config.socketPath, 0o666);
+  } else {
+    await app.listen({ host: config.host, port: config.port });
+  }
   if (ctx.repo.hasOwner()) await ctx.ig.start();
-  else log.info('No owner yet — open the web UI and sign up with the SETUP_TOKEN from .env.');
+  else log.info('No owner yet — waiting for the account to be created or claimed.');
 
   let stopping = false;
   const shutdown = async (signal: string) => {

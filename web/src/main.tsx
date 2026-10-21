@@ -4,6 +4,7 @@ import { Navigate, Outlet, RouterProvider, createBrowserRouter, useLocation } fr
 import type { AppState } from '../../shared/api';
 import { Icon } from './components/Icon';
 import { Spinner } from './components/ui';
+import { AdminPage } from './pages/Admin';
 import { LoginPage, RecoverPage, SetupRecoveryPage, SignupPage } from './pages/Auth';
 import { MainLayout } from './pages/MainLayout';
 import { ChatsPage, DeletedPage, InstagramPage, NotFoundPage, SearchPage } from './pages/Pages';
@@ -73,6 +74,7 @@ const router = createBrowserRouter([
           { path: '/reels', element: <ReelsPage /> },
           { path: '/stories', element: <StoriesPage /> },
           { path: '/settings', element: <SettingsPage /> },
+          { path: '/admin', element: <AdminPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

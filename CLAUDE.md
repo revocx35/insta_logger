@@ -28,12 +28,19 @@ Read these first, every session:
   Instagram more than the reconcile does. Don't add features that open threads in the tab.
 - View-once / allow-replay media is never downloaded (wa_logger's policy).
 - DB migrations are append-only (`server/src/db/db.ts`). Encrypted columns are AAD-bound to their row id.
+- Multi-user: the gateway is the only network listener; workers are unix-socket-only behind `X-IGL-Internal`/`X-IGL-Scope`
+  and the tenant cookie only routes. Never share files, sockets, secrets or data between tenants; never let the admin API
+  return content. New routes must go through the gateway proxy (port pinning happens there). See AGENTS.md "Multi-user rules".
+- When a web page/setting changes that the Android client has too, port it to `insta_logger_android` (the Admin/Users
+  screens are not in the Android app yet).
 - Commits end with the Co-Authored-By trailer. CI must stay green: it publishes the GHCR images on `main`.
 
 ## Commands
-- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`).
+- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 197 tests).
+- Chromium manager: `cd chromium/manager && CGO_ENABLED=0 go test ./...`.
 - Web: `cd web && npm test && npm run build`.
-- Full stack from source: `scripts/smoke.sh` (23 checks). Standalone layout: `scripts/smoke.sh --deploy`.
+- Full stack from source: `scripts/smoke.sh` (32 checks). Standalone layout: `scripts/smoke.sh --deploy`.
+- Multi-user against a running stack: `scripts/dev/multiuser-e2e.mts` (see its header).
 - Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (61 checks).
 - UI screenshots: `scripts/dev/README.md` (`ui-shots.mts`). Sample data: `server/src/testutil/seed.ts`.
 
@@ -51,3 +58,6 @@ Read these first, every session:
 - Compose `configs.content` fails for `read_only` services, so the Caddyfiles are baked into the caddy image.
 - Opening the site by IP means no SNI, so Caddy needs `default_sni`.
 - `TRUST_PROXY` is a hop count and must equal the real number of proxies (bundled Caddy = 1, + Nginx Proxy Manager = 2).
+- Root in the app and chromium containers has no DAC override (`SETUID SETGID CHOWN KILL` only): do work inside a
+  tenant's directories as that tenant's unix user, and chmod a directory before chowning it.
+- The chromium manager only relays `/json/version`, `/json/list` and the browser-level WebSocket; page endpoints get 404.

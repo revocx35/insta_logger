@@ -39,6 +39,22 @@ and how to run it safely. The design details are in [ARCHITECTURE.md](ARCHITECTU
   URLs, and anything that controls CDP (the app) could too. The app refuses every request coming from Chromium.
 - **Anyone who can open the VNC view** (a logged-in owner session) can use the Instagram account in the browser.
 
+## Multiple users
+
+- Every user is a separate tenant: own unix user, own directories, own SQLite database, own keys, own Chromium profile.
+  The gateway (the only network listener) owns only the user list and an audit log — no keys, no content.
+- A worker's socket lives in a `tenant:front 0710` directory and every request to it must carry that worker's random
+  token; the `/internal/*` routes additionally need a scope header only the gateway sets. The tenant cookie is a
+  routing hint, not a credential — the worker validates its own session cookie.
+- A user can only sign in on the port the admin assigned (the admin only on the default port); a session is rejected on
+  every other port, on HTTP requests and WebSocket upgrades alike.
+- The admin never sees message content, contact names or media. It can reset or delete a user's account and thereby
+  take it over (with a wipe) or deny service, but cannot read what was logged: the data keys are wrapped by the user's
+  own password/recovery key. Destructive admin actions ask for the admin password again (and 2FA when on).
+- Each Chromium runs under the owning user's unix user with its own X display, VNC password and profile. A full browser
+  sandbox escape as one user could reach the other browsers' loopback DevTools ports (shared network namespace in the
+  chromium container); separate containers per user would close that and are not implemented.
+
 ## Encryption at rest
 
 ```

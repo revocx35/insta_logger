@@ -69,3 +69,34 @@
 - Reels preloading: server prefetches the first 4 videos of each page; web/Android warm the next 3 while watching.
 - Story logging didn't save anything live: Instagram's story query now requires the relay provider PolarisCommunityNoteStoriesLabelEnabled (captured from its viewer, seen request blocked); without it items come back empty with missing_required_variable_value. Empty answers are now reported in the status.
 - Stories page: the account row was squashed under the grid (flex column + overflow-x row shrinks to 0); page children no longer shrink.
+
+## 2026-10-21 — multi-user support (parity with wa_logger's 2026-10-20 design)
+
+The owner asked for the same multi-user mechanism wa_logger got: the first account is the admin, the admin creates users
+with a temporary password and assigns each a port (the ports are opened by the admin). The server core was already a
+direct fork of wa_logger's pre-multi-user code, so the containers/gateway/supervisor were ported from that release rather
+than reinvented:
+
+- `server/src/supervisor/` (root, CAP_SETUID/SETGID/CHOWN/KILL): creates `/users`, `/run/igl`, starts the gateway and one
+  worker per tenant under that tenant's unix user, restarts them, and answers a one-line-JSON control socket.
+- `server/src/front/` + `front.ts`: the gateway — system DB (`users`, `listeners`, `audit`), one `http.Server` per port,
+  tenant cookie (`__Host-igl_tenant`) routing, streaming/WebSocket proxy to the worker's unix socket, admin API.
+- Workers: `SOCKET_PATH`/`INTERNAL_TOKEN`/`CHROMIUM_*` in `config.ts`, `/internal/*` routes (`api/internal.ts`), the
+  `pending_claim` migration + claim flow in `auth/routes.ts` (signup only in single-process mode).
+- chromium container: `chromium/manager/` (Go, stdlib only) replaced the bash supervisor: per-user Xvfb + Chromium +
+  x11vnc under their own unix users, one token-checked API (`ensure`, `restart`, delete, VNC tunnel, CDP relay of
+  `/json/version`, `/json/list` and the browser WebSocket), stale profile locks cleared as the instance's user.
+- insta-specific difference: the app never used `puppeteer.connect({ browserURL })` for its login watch — `ig/loginwatch.ts`
+  reads the tab list and the cookie jar directly. It now goes through `ChromiumLink.cdpTarget()` (the manager relays
+  `/json/list` as well), and `BrowserCdp` connects with the `ws` package so the instance token can be sent on the
+  handshake (undici's WebSocket cannot send headers). `ws` moved from devDependencies to dependencies.
+- Web: `pages/Admin.tsx` (users, ports, admin log; no "blocked contacts" — that is a WhatsApp feature), the
+  choose-own-password step in `Auth.tsx`, `/admin` route and rail entry, admin API client methods, `role`/`ig` in AppState.
+- Compose/Dockerfile/caddy: supervisor as PID 1, `app_users:/users`, `/run/igl` tmpfs, `cap_add` in app and chromium,
+  `EXTRA_PORTS` published by caddy with one generated site per port, `CONTROL_SECRET` (falls back to `VNC_PASSWORD`, so
+  the CT 120 `.env` keeps working).
+- Gotcha found while porting: the wa copy of `http/server.ts` was re-copied after the bulk rename, so it still checked
+  `x-wal-internal`; the gateway's forwarded requests were refused with a bare 403. Grep for the old prefix after copying
+  files, not just in the first batch.
+- Tests: 197 server (11 new multi-user worker tests, gateway and supervisor suites), Go manager suite green
+  (`CGO_ENABLED=0 go test ./...`), web 10 + build, smoke extended to 32 checks.
