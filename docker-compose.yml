@@ -45,8 +45,13 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      # Short `tmpfs:` syntax loses its options on compose 2.40; the long form keeps size and mode, and Docker mounts
+      # tmpfs noexec,nosuid,nodev anyway.
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 16777216
+          mode: 1023
     networks: [public, edge]
     depends_on:
       app:
@@ -82,10 +87,17 @@ services:
     volumes:
       - app_data:/data
       - app_users:/users
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 67108864
+          mode: 1023
       # Control socket and one socket directory per user worker.
-      - /run/igl:rw,noexec,nosuid,nodev,size=4m,mode=0711
+      - type: tmpfs
+        target: /run/igl
+        tmpfs:
+          size: 4194304
+          mode: 457
     networks: [edge, backend]
     depends_on:
       chromium:
@@ -118,12 +130,23 @@ services:
       BACKEND_PEER: app
     volumes:
       - chromium_profile:/data
-    tmpfs:
-      - /tmp:rw,nosuid,nodev,size:512m
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 536870912
+          mode: 1023
       # One home directory per user below here (the manager creates them 0700 for the right unix user).
-      - /home/chrome:rw,nosuid,nodev,size:512m,mode:0711
+      - type: tmpfs
+        target: /home/chrome
+        tmpfs:
+          size: 536870912
+          mode: 457
       # Per-user X authority cookie and VNC password.
-      - /run/igl:rw,noexec,nosuid,nodev,size:8m,mode:0711
+      - type: tmpfs
+        target: /run/igl
+        tmpfs:
+          size: 8388608
+          mode: 457
     shm_size: ${CHROMIUM_SHM:-2gb}
     networks: [backend, egress]
     # Every active user runs a Chromium of about 1.5 GB: raise this with MAX_USERS.
