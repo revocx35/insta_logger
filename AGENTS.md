@@ -37,7 +37,7 @@ Read before changing anything: [ARCHITECTURE.md](ARCHITECTURE.md) (design, secur
 cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck   # 197 tests
 cd web && npm ci && npm test && npm run build                                        # strict-CSP build
 cd chromium/manager && CGO_ENABLED=0 go test ./...                                    # Go manager (also run in the image build)
-scripts/smoke.sh                     # whole stack from source, real instagram.com login page (32 checks)
+scripts/smoke.sh                     # whole stack from source, real instagram.com login page + multi-user checks
 cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]   # real stack vs fake Instagram (61 checks; Docker, ports 29443/29080/18555)
 # Against a running stack: unix users, one browser per user, ports, claim/reset/wipe (see the header of the script)
 cd server && BASE=http://127.0.0.1:8080 EXTRA_PORT=8101 PROJECT=iglmulti npx tsx ../scripts/dev/multiuser-e2e.mts

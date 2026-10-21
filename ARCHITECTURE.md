@@ -591,7 +591,7 @@ plain-http media links are accepted only from that origin). Per worker/user (set
 * The stream decoder was cross-checked against frames encoded by mautrix-meta's Go implementation (`dgw` +
   `mdCoreSync` protobuf), including the ack bit and a trailing ping (2026-10-18).
 * `web`: vitest for `igText` (links, mentions, injection attempts, hostile input speed), typecheck, production build.
-* `scripts/smoke.sh` (32 checks): TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
+* `scripts/smoke.sh`: TLS (+ no SNI), headers, cookies, CSRF/Origin, signup, **the real instagram.com login
   page loads in the locked-down Chromium** (state `login`), VNC handshake, no app egress, Chromium sandbox, the admin API
   (and no anonymous access to it), creating a user, `/internal` unreachable from outside, and one unix user per process.
 * `chromium/manager` (Go, `CGO_ENABLED=0 go test ./...`, also run in the image build): token vectors shared with

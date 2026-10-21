@@ -39,7 +39,7 @@ Read these first, every session:
 - Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 197 tests).
 - Chromium manager: `cd chromium/manager && CGO_ENABLED=0 go test ./...`.
 - Web: `cd web && npm test && npm run build`.
-- Full stack from source: `scripts/smoke.sh` (32 checks). Standalone layout: `scripts/smoke.sh --deploy`.
+- Full stack from source: `scripts/smoke.sh` (incl. multi-user checks). Standalone layout: `scripts/smoke.sh --deploy`.
 - Multi-user against a running stack: `scripts/dev/multiuser-e2e.mts` (see its header).
 - Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (61 checks).
 - UI screenshots: `scripts/dev/README.md` (`ui-shots.mts`). Sample data: `server/src/testutil/seed.ts`.

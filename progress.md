@@ -24,7 +24,7 @@
       per-user ports the admin opens and assigns; the admin API and its audit log
 - [x] Web: Users page (users, ports, admin log), choose-own-password step on login, admin nav entry
 - [x] Upgrade path from a single-user install (tenant 1 keeps /data, /data/profile; the owner is adopted as admin)
-- [x] Tests: 197 server (+11 multi-user worker, +gateway/supervisor suites), Go manager suite, smoke 32, web build
+- [x] Tests: 197 server (incl. 11 multi-user worker tests and the gateway/supervisor suites), Go manager suite, web build
 - [x] Docs updated (AGENTS, ARCHITECTURE, README, SECURITY, CLAUDE, DEVLOG)
 
 ## Open
