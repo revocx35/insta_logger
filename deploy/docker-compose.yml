@@ -78,7 +78,7 @@ services:
       CHROMIUM_URL: http://chromium:9223
       # Shared with the chromium container only; the supervisor derives each user's browser token from it. (Releases
       # before user management used VNC_PASSWORD for the VNC server: it is the fallback so existing .env files work.)
-      CONTROL_SECRET: ${CONTROL_SECRET:-${VNC_PASSWORD:?create .env first (bash setup.sh)}}
+      CONTROL_SECRET: ${CONTROL_SECRET:-${VNC_PASSWORD:-}}
       EXTRA_PORTS: ${EXTRA_PORTS:-8101-8110}
       # 1 = only the bundled Caddy; 2 = Caddy + your own reverse proxy in front (HTTP mode).
       TRUST_PROXY: ${TRUST_PROXY:-1}
@@ -112,7 +112,7 @@ services:
       - seccomp=./seccomp-chromium.json
     logging: *logging
     environment:
-      CONTROL_SECRET: ${CONTROL_SECRET:-${VNC_PASSWORD:?create .env first (bash setup.sh)}}
+      CONTROL_SECRET: ${CONTROL_SECRET:-${VNC_PASSWORD:-}}
       MAX_INSTANCES: ${MAX_USERS:-10}
       SCREEN: ${SCREEN:-1280x800x24}
       # The browser's time zone (Instagram compares it with your IP address's location).
