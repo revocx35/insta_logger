@@ -335,7 +335,18 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
 ## 5. Web UI — `web/`
 
 React 19 + Vite + TypeScript SPA, built into the server's static assets. No CDN, no external fonts, no inline scripts
-(strict CSP). `@novnc/novnc` for the Instagram screen, `qrcode` for TOTP enrollment.
+(strict CSP). `@novnc/novnc` for the Instagram screen, `qrcode` for TOTP enrollment, `@fontsource/grand-hotel` for the
+script wordmark (bundled, served from `'self'`; SIL OFL, `third_party/GrandHotel-OFL.txt`).
+
+**Look:** styled after Instagram's own app and web UI (2026-10-27). `styles.css` tokens follow Instagram's (white/black,
+`#efefef`/`#262626` secondary, `#0095f6` buttons, `#ff3040` likes, 14 px base, 8 px flat buttons). `components/Icon.tsx`
+holds outline icons on a 24 px grid with a 2 px round stroke (the Android client generates its `WaIcons` from them).
+Layout (`pages/MainLayout.tsx`): Instagram's sidebar — 244 px with the wordmark on wide screens, 73 px icons only under
+1264 px and on Messages/Reels — with "More" (Unsent, Instagram, Users, Settings, log out); under 768 px a bottom tab bar
+(Messages, Search, Reels, Stories, More → bottom sheet). The DM list (account name as title, "Messages · Requests",
+chips, 56 px avatars, "preview · 2h"), joined bubble runs, a rounded composer with a text "Send", bare photos/videos,
+the reels page with right-hand actions and a double-tap heart, the stories tray (gradient rings) + archive grid (date
+boxes) + viewer with progress bars and auto-advance (photos 5 s).
 
 Routes: `/signup`, `/login`, `/recover`, `/setup/recovery`, `/setup/link`, `/` (chats), `/chat/:chatId`, `/reels`,
 `/stories`, `/deleted` ("Unsent"), `/search`, `/instagram`, `/settings`. A route guard uses `GET /api/state`.
@@ -351,8 +362,8 @@ label; edited badge with history; unsent badge ("Unsent · time · logged copy" 
 reactions; "Seen" for own messages; photos (lightbox), videos/GIFs, voice messages, music previews, stickers; shared
 posts as cards (kind, title, caption, link out) with their preview image; album position; disappearing timer icon;
 view-once placeholder; select photos/videos → one ZIP; infinite scroll; SSE live updates; per-chat and global search;
-composer (text, reply, edit, photo/video/audio, voice recording as MP4 or Ogg/Opus). Instagram-like theme (blue/violet
-gradient own bubbles, grey incoming), light and dark, single pane under 900 px.
+composer (text, reply, edit, photo/video/audio, voice recording as MP4 or Ogg/Opus). Instagram-like theme (screen-tall
+purple→blue gradient own bubbles, grey incoming), light and dark, single pane under 768 px.
 
 ## 6. Security model
 

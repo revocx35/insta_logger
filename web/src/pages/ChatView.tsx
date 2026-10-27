@@ -309,9 +309,9 @@ export function ChatView({ chatId }: { chatId: string }) {
       ) : (
         <header className="chat-head">
           <button className="icon-btn mobile-only" onClick={() => navigate('/')} aria-label="Back to chats">
-            <Icon name="back" />
+            <Icon name="back" size={26} />
           </button>
-          <Avatar id={chatId} name={title} url={chat?.avatarUrl} kind={chat?.kind} size={40} />
+          <Avatar id={chatId} name={title} url={chat?.avatarUrl} kind={chat?.kind} size={44} />
           <div className="chat-head-info">
             <div className="chat-head-name">{title}</div>
             <div className="muted small">
@@ -321,10 +321,10 @@ export function ChatView({ chatId }: { chatId: string }) {
             </div>
           </div>
           <button className="icon-btn" onClick={() => setSelecting(true)} aria-label="Select photos and videos to download" title="Select photos and videos to download">
-            <Icon name="download" />
+            <Icon name="download" size={24} />
           </button>
           <button className={searchOpen ? 'icon-btn active' : 'icon-btn'} onClick={() => setSearchOpen((v) => !v)} aria-label="Search in chat">
-            <Icon name="search" />
+            <Icon name="search" size={24} />
           </button>
         </header>
       )}

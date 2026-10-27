@@ -392,12 +392,12 @@ through your server, so the phone never talks to Instagram.
 
 | Menu | What it does |
 |---|---|
-| **Chats** | Instagram-style chat list (filters: groups, chats with unsent messages, message requests) and the chat view |
+| **Messages** | Instagram-style chat list (filters: groups, chats with unsent messages, message requests) and the chat view |
 | **Unsent** | Every message that was unsent (or vanished) after it was logged, newest first, with a link into its chat |
 | **Search** | Full-text search over decrypted messages and shared posts |
 | **Stories** | Logged stories of the accounts you follow (turn on in Settings → Logging, choose how many days to keep them): grid per account, full-screen viewer, *Check now*. Never marked as seen |
 | **Reels** | Instagram's reels feed, played through the server (Instagram only sees the server). Like (also double-click), read comments, comment and reply; **Send** shares a reel into your chats as its link |
-| **Instagram** | Live view of the background Instagram tab (view-only toggle, reload, log out) — log in here when needed |
+| **Instagram** *(under More on phones)* | Live view of the background Instagram tab (view-only toggle, reload, log out) — log in here when needed |
 | **Settings** | Password, 2FA, recovery key, sessions, logging options, background session refresh (every N hours ± up to 10 min, random), security log, wipe data |
 
 Unsent messages have a **red frame** and the time they were unsent. Edited messages show an **Edited** link with the

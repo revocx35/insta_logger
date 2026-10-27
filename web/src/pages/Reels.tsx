@@ -3,6 +3,7 @@ import type { ChatSummary, WebComment, WebPost } from '../../../shared/api';
 import { api, errorMessage } from '../api/client';
 import { Icon } from '../components/Icon';
 import { Avatar, EmptyState, ErrorNote, Spinner } from '../components/ui';
+import { formatAgo } from '../lib/format';
 import { useAppState } from '../state/AppState';
 
 /** How many of the next reels preload their video (like Instagram). */
@@ -76,9 +77,12 @@ export function ReelsPage() {
 
   return (
     <div className="reels-page">
-      <button className="reels-refresh" onClick={refresh} disabled={loading} title="Load a fresh reels feed" aria-label="Refresh feed">
-        {loading ? <Spinner size={18} /> : <Icon name="refresh" size={20} />}
-      </button>
+      <header className="reels-top">
+        <b>Reels</b>
+        <button className="reels-refresh" onClick={refresh} disabled={loading} title="Load a fresh reels feed" aria-label="Refresh feed">
+          {loading ? <Spinner size={18} /> : <Icon name="refresh" size={22} />}
+        </button>
+      </header>
       <div className="reels-scroller" ref={scroller}>
         {reels.map((r, i) => (
           <Reel
@@ -141,6 +145,7 @@ function Reel(props: {
   const [liked, setLiked] = useState(reel.liked);
   const [likes, setLikes] = useState(reel.likeCount);
   const [likeError, setLikeError] = useState(false);
+  const [pop, setPop] = useState(0);
 
   const like = async () => {
     const on = !liked;
@@ -201,26 +206,34 @@ function Reel(props: {
             muted={muted}
             preload={active || ahead ? 'auto' : 'metadata'}
             onClick={toggle}
-            onDoubleClick={() => !liked && void like()}
+            onDoubleClick={() => {
+              setPop(Date.now());
+              if (!liked) void like();
+            }}
           />
         ) : clip.poster ? (
           <img className="reel-video" src={clip.poster} alt="" loading="lazy" />
         ) : (
           <div className="reel-video" />
         )}
+        {pop ? (
+          <span key={pop} className="reel-pop" aria-hidden="true">
+            <Icon name="heartFill" size={96} />
+          </span>
+        ) : null}
         {paused && active ? (
           <button className="reel-play" onClick={toggle} aria-label="Play">
-            ▶
+            <Icon name="play" size={34} />
           </button>
         ) : null}
         <button className="reel-mute" onClick={onMute} aria-label={muted ? 'Sound on' : 'Sound off'}>
-          <Icon name={muted ? 'mute' : 'volume'} size={18} />
+          <Icon name={muted ? 'mute' : 'volume'} size={16} />
         </button>
         <div className="reel-info">
           <div className="reel-author">
             <Avatar id={reel.user.id} name={reel.user.username} url={reel.user.avatar} size={32} />
             <b>{reel.user.username}</b>
-            {reel.user.verified ? <Icon name="check" size={14} className="reel-verified" title="Verified" /> : null}
+            {reel.user.verified ? <Icon name="verified" size={14} className="reel-verified" title="Verified" /> : null}
           </div>
           {reel.caption ? (
             <p className={more ? 'reel-caption open' : 'reel-caption'} onClick={() => setMore((m) => !m)}>
@@ -231,17 +244,19 @@ function Reel(props: {
       </div>
       <div className="reel-actions">
         <button className={liked ? 'reel-action liked' : 'reel-action'} onClick={() => void like()} title={likeError ? 'Instagram did not accept that' : liked ? 'Unlike' : 'Like'} aria-pressed={liked}>
-          <Icon name="heart" size={26} />
+          <Icon name={liked ? 'heartFill' : 'heart'} size={28} />
           <small>{likeError ? '!' : compact(likes)}</small>
         </button>
         <button className="reel-action" onClick={onComments} title="Comments">
-          <Icon name="comment" size={26} />
+          <Icon name="comment" size={28} />
           <small>{compact(reel.commentCount)}</small>
         </button>
-        <button className="reel-action" onClick={onShare} title="Send to a chat" disabled={!reel.code}>
-          <Icon name="send" size={26} />
-          <small>Send</small>
+        <button className="reel-action" onClick={onShare} title="Send to a chat" aria-label="Send to a chat" disabled={!reel.code}>
+          <Icon name="send" size={28} />
         </button>
+        <span className="reel-thumb" aria-hidden="true">
+          <Avatar id={reel.user.id} name={reel.user.username} url={reel.user.avatar} size={28} />
+        </span>
       </div>
     </section>
   );
@@ -296,7 +311,7 @@ function ShareSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }) {
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" role="dialog" aria-label="Send reel" onClick={(e) => e.stopPropagation()}>
         <header className="sheet-head">
-          <b>Send to</b>
+          <b>Share</b>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             <Icon name="close" />
           </button>
@@ -331,13 +346,6 @@ function ShareSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }) {
   );
 }
 
-function ago(ts: number): string {
-  const s = Math.max(0, (Date.now() - ts) / 1000);
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
-  if (s < 86400) return `${Math.round(s / 3600)}h`;
-  if (s < 86400 * 7) return `${Math.round(s / 86400)}d`;
-  return `${Math.round(s / (86400 * 7))}w`;
-}
 
 function CommentsSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }) {
   const [items, setItems] = useState<WebComment[]>([]);
@@ -411,7 +419,7 @@ function CommentsSheet({ reel, onClose }: { reel: WebPost; onClose: () => void }
           <b>{c.user.username}</b> <span className="comment-text">{c.text}</span>
         </div>
         <small className="muted">
-          {ago(c.createdAt)}
+          {formatAgo(c.createdAt)}
           {c.likeCount ? ` · ${compact(c.likeCount)} likes` : ''}
           {' · '}
           <button className="link-btn" onClick={() => startReply(c)}>

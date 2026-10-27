@@ -249,7 +249,7 @@ export function Composer({
       ) : null}
       {disabledReason ? <div className="compose-error muted">{disabledReason}</div> : null}
       {recording ? (
-        <div className="compose-row recording">
+        <div className="compose-row compose-pill recording">
           <button className="icon-btn" onClick={() => stopRecording(false)} aria-label="Discard recording">
             <Icon name="deleted" />
           </button>
@@ -261,22 +261,14 @@ export function Composer({
           </button>
         </div>
       ) : (
-        <div className="compose-row">
-          {!editing ? (
-            <>
-              <button className="icon-btn" onClick={() => picker.current?.click()} disabled={disabled} aria-label="Attach a photo or video" title="Attach a photo or video">
-                <Icon name="image" />
-              </button>
-              <input ref={picker} type="file" accept="image/*,video/*,audio/*" hidden onChange={pick} />
-            </>
-          ) : null}
+        <div className="compose-row compose-pill">
           <textarea
             ref={input}
             rows={1}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKey}
-            placeholder={editing ? 'Edit message' : 'Message…'}
+            placeholder={editing ? 'Edit message' : 'Message...'}
             aria-label="Message"
             maxLength={1000}
             disabled={!!disabledReason}
@@ -286,14 +278,20 @@ export function Composer({
               <Spinner size={18} />
             </span>
           ) : text.trim() || file || editing ? (
-            <button className="icon-btn send" onClick={send} disabled={disabled} aria-label={editing ? 'Save edit' : 'Send'}>
-              <Icon name={editing ? 'check' : 'send'} />
+            <button className="send-text" onClick={send} disabled={disabled} aria-label={editing ? 'Save edit' : 'Send'}>
+              {editing ? 'Save' : 'Send'}
             </button>
           ) : (
-            <button className="icon-btn" onClick={() => void startRecording()} disabled={disabled} aria-label="Record a voice message" title="Record a voice message">
-              <Icon name="mic" />
-            </button>
+            <>
+              <button className="icon-btn" onClick={() => void startRecording()} disabled={disabled} aria-label="Record a voice message" title="Record a voice message">
+                <Icon name="mic" size={24} />
+              </button>
+              <button className="icon-btn" onClick={() => picker.current?.click()} disabled={disabled} aria-label="Attach a photo or video" title="Attach a photo or video">
+                <Icon name="image" size={24} />
+              </button>
+            </>
           )}
+          <input ref={picker} type="file" accept="image/*,video/*,audio/*" hidden onChange={pick} />
         </div>
       )}
     </footer>

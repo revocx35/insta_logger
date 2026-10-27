@@ -121,9 +121,16 @@ export function ErrorNote({ error }: { error: string | null }) {
 export function EmptyState({ icon, title, children }: { icon: Parameters<typeof Icon>[0]['name']; title: string; children?: ReactNode }) {
   return (
     <div className="empty-state">
-      <Icon name={icon} size={56} />
+      <span className="empty-icon">
+        <Icon name={icon} size={44} />
+      </span>
       <h3>{title}</h3>
       {children ? <div className="muted">{children}</div> : null}
     </div>
   );
+}
+
+/** The app's name as a script wordmark (Instagram-style; the font is bundled, see styles.css). */
+export function Wordmark({ className }: { className?: string }) {
+  return <span className={className ? `wordmark ${className}` : 'wordmark'}>Instalogger</span>;
 }

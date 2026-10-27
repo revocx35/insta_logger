@@ -521,7 +521,7 @@ export function SettingsPage() {
     <div className="page settings">
       <header className="page-head">
         <h1>
-          <Icon name="settings" /> Settings
+          Settings
         </h1>
         <p className="muted">Signed in as {state?.username}</p>
         <nav className="toc">

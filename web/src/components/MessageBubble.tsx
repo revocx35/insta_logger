@@ -194,7 +194,7 @@ function BubbleImpl({ msg, isGroup, showSender, highlighted, onJump, selection, 
   }
 
   const deleted = msg.deletedAt !== null;
-  const classes = ['bubble', msg.fromMe ? 'out' : 'in', deleted ? 'deleted' : '', highlighted ? 'highlight' : '', msg.type === 'sticker' && msg.media?.url ? 'sticker' : '']
+  const classes = ['bubble', msg.fromMe ? 'out' : 'in', deleted ? 'deleted' : '', highlighted ? 'highlight' : '', msg.type === 'sticker' && msg.media?.url ? 'sticker' : '', (msg.type === 'image' || msg.type === 'video') && msg.media?.url && !msg.text && !msg.quoted ? 'media' : '']
     .filter(Boolean)
     .join(' ');
 

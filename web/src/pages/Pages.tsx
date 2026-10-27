@@ -25,7 +25,7 @@ export function ChatsPage() {
         <ChatView key={id} chatId={id} />
       ) : (
         <section className="chat-view placeholder">
-          <EmptyState icon="shield" title="insta_logger">
+          <EmptyState icon="chats" title="Your messages">
             Select a chat to read its log. Messages that were unsent stay visible here and are marked in red.
           </EmptyState>
         </section>
@@ -69,7 +69,7 @@ export function DeletedPage() {
     <div className="page">
       <header className="page-head">
         <h1>
-          <Icon name="deleted" /> Unsent messages
+          Unsent messages
         </h1>
         <p className="muted">Everything that was unsent (or vanished from Instagram) after it was logged, newest first.</p>
       </header>
@@ -147,7 +147,7 @@ export function SearchPage() {
     <div className="page">
       <header className="page-head">
         <h1>
-          <Icon name="search" /> Search messages
+          Search messages
         </h1>
         <p className="muted">Searches decrypted text and shared posts across all chats (including unsent messages).</p>
       </header>
@@ -216,7 +216,7 @@ export function InstagramPage() {
       <header className="page-head row between wrap">
         <div>
           <h1>
-            <Icon name="monitor" /> Instagram
+            Instagram
           </h1>
           <p className="muted">The real Instagram website running in the background browser{who ? ` — logged in as ${who}` : ''}.</p>
         </div>

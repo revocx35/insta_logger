@@ -537,7 +537,7 @@ export function AdminPage() {
     <div className="page settings">
       <header className="page-head">
         <h1>
-          <Icon name="group" /> Users
+          Users
         </h1>
         <p className="muted">Signed in as {state.username} (admin)</p>
       </header>

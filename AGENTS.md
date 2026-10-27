@@ -103,6 +103,9 @@ publishes `ghcr.io/revocx35/insta_logger-{app,chromium,caddy}` on `main`. Deploy
 - Unix socket paths are ≤ ~104 bytes: tests use short temp dirs.
 - Origins: when a port has a configured origin (`PUBLIC_ORIGIN` for the default port) the gateway tells the worker that
   scheme and host instead of the forwarded ones.
+- The look follows Instagram (ARCHITECTURE.md §5): keep new UI on the existing tokens and the `Icon.tsx` outline icons;
+  the Android client generates its icons from `Icon.tsx`, so add web icons there first.
+- `.grow` has a later `min-width: 200px` rule (admin tables); use a dedicated class for flex spacers.
 - Behind NPM `TRUST_PROXY` must equal the real hop count (gateway counts it; workers trust one hop: the gateway).
 - Port ranges: `EXTRA_PORTS` must be one range for compose (`8101-8110`); the app and caddy's script accept lists too.
 - `@fastify` rate limit is per process: the gateway and each worker count separately (login routes: 10/15 min per IP).

@@ -100,3 +100,15 @@ than reinvented:
   files, not just in the first batch.
 - Tests: 197 server (11 new multi-user worker tests, gateway and supervisor suites), Go manager suite green
   (`CGO_ENABLED=0 go test ./...`), web 10 + build, smoke extended to 32 checks.
+
+## 2026-10-27 — Instagram look (web + Android)
+
+- Owner asked for the UI to look like the official Instagram app and web UI, in the web UI and the Android client.
+- Web: Instagram's tokens/type scale, outline icon set, sidebar (wide/narrow) + phone tab bar with a "More" sheet,
+  DM inbox layout, joined bubble runs, pill composer with a text "Send", bare media, reels actions + double-tap heart,
+  stories tray/archive grid/viewer with progress bars, Instagram-style login box with a script wordmark (Grand Hotel,
+  bundled, OFL). `formatAgo` ("2h", "3d") with tests.
+- Checked by screenshots against the fake-Instagram stack through a local preview proxy (reels/stories mocked there).
+- Lesson: `.grow` has a later `min-width: 200px` (admin tables) — don't reuse it as a flex spacer.
+- Note: `fake-e2e.mts` currently fails at "Instagram ready" after the multi-user change (it polls `/api/ig/status`
+  before onboarding); the stack itself comes up — needs a follow-up.

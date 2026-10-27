@@ -13,6 +13,7 @@ import { StoriesPage } from './pages/Stories';
 import { SettingsPage } from './pages/Settings';
 import { SetupLinkPage } from './pages/SetupLink';
 import { AppStateProvider, useAppState } from './state/AppState';
+import '@fontsource/grand-hotel/latin-400.css';
 import './styles.css';
 
 const PUBLIC_WHEN_LOGGED_OUT = ['/login', '/recover'];
