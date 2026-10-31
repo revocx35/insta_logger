@@ -274,6 +274,11 @@ func (in *Instance) start() error {
 			"-rfbport", strconv.Itoa(vncPort), "-listen", "127.0.0.1", "-localhost", "-noipv6",
 			"-passwdfile", "read:" + pwFile,
 			"-forever", "-shared", "-noxdamage", "-nowf", "-quiet",
+			// Input reaches X as it comes, also after idle time: with x11vnc's naps and screen-blank throttling (and
+			// pointer scheme 2 "eating" queued motion) the automatic login's human mouse paths (server/src/ig/
+			// humaninput.ts) arrived in bursts every ~250 ms that Chromium merged into a few jumps (12 of 58 moves
+			// seen by the page; 40 of 58 without). Idle CPU without clients is unchanged.
+			"-pointer_mode", "1", "-nonap", "-sb", "0",
 		}, true
 	})
 	go func() {

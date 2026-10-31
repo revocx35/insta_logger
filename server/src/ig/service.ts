@@ -1,7 +1,8 @@
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import type { IgState, IgStatus } from '../../../shared/api.js';
+import type { AutoLoginRun, AutoLoginSave, AutoLoginStatus, IgState, IgStatus } from '../../../shared/api.js';
 import type { AppContext, IgController, IgWebSource } from '../context.js';
 import { IgClient } from './api.js';
+import { AutoLogin } from './autologin.js';
 import { refreshAvatars } from './avatars.js';
 import { classifyUrl, closeOtherTabs, pickInstagramTab, type PageKind } from './browser.js';
 import { ChromiumLink, type CdpTarget } from './chromium.js';
@@ -123,6 +124,33 @@ export class IgService implements IgController {
     this.sender = new Sender(ctx, live, (chatId) => this.threadIdOf(chatId));
     this.stories = new StoryLogger(ctx, () => this.webSource());
     this.chromium = ChromiumLink.fromConfig(ctx.config);
+    this.autoLogin = new AutoLogin(ctx, {
+      chromium: this.chromium,
+      report: () => {
+        if (this.state === 'login') this.setLoginState('login');
+      },
+    });
+  }
+
+  /** Automatic login with the saved password (ig/autologin.ts). */
+  readonly autoLogin: AutoLogin;
+
+  autoLoginStatus(): AutoLoginStatus {
+    return this.autoLogin.status();
+  }
+
+  saveAutoLogin(input: AutoLoginSave): void {
+    this.autoLogin.save(input);
+  }
+
+  removeAutoLogin(): void {
+    this.autoLogin.remove();
+  }
+
+  async autoLoginNow(): Promise<AutoLoginRun['result']> {
+    if (!this.watchTimer) return 'not_on_login_page';
+    const look = await lookAtTab(this.chromium.cdpTarget(), this.ctx.config.igWebOrigin);
+    return this.autoLogin.runNow(this.chromium.cdpTarget(), look);
   }
 
   readonly stories: StoryLogger;
@@ -302,6 +330,7 @@ export class IgService implements IgController {
   }
 
   async logout(): Promise<void> {
+    this.autoLogin.suppress();
     const tab = this.tab;
     if (!tab) throw new Error('not connected');
     const page = tab.page;
@@ -424,6 +453,7 @@ export class IgService implements IgController {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.autoLogin.cancel();
     this.stories.stop();
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -520,7 +550,7 @@ export class IgService implements IgController {
 
   private setLoginState(kind: PageKind): void {
     if (kind === 'challenge') this.setState('challenge', CHALLENGE_TEXT);
-    else this.setState('login', LOGIN_TEXT);
+    else this.setState('login', this.autoLogin.note() ?? LOGIN_TEXT);
   }
 
   /* ------------------------------------------------- logged out */
@@ -547,11 +577,14 @@ export class IgService implements IgController {
       if (gen !== this.generation) return;
       const next = nextLoginStep(look, { fresh: reload, strayPolls: stray });
       if (next === 'attach') {
+        this.autoLogin.onLoggedIn();
         this.stopWatch();
         void this.connect(false);
         return;
       }
       this.setLoginState(look.kind);
+      if (look.kind === 'challenge') this.autoLogin.onChallenge();
+      if (next === 'wait') this.autoLogin.consider(target, look);
       stray = next === 'wait' && look.kind !== 'login' && look.kind !== 'challenge' ? stray + 1 : 0;
       if (next === 'open_login') await steerTab(target, look.tab, { goto: `${origin}/accounts/login/` });
       else if (next === 'reload') await steerTab(target, look.tab, { reload: true });
@@ -603,6 +636,7 @@ export class IgService implements IgController {
       this.meIds.igId = userId;
     }
     this.ctx.repo.audit('ig_ready', null);
+    this.autoLogin.onLoggedIn();
     const early = this.early;
     this.early = [];
     this.applyDeltas(early);

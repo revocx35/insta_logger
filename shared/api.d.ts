@@ -44,6 +44,41 @@ export interface IgStatus {
   since: number;
 }
 
+/* ------------------------------------------------- automatic Instagram login */
+
+/**
+ * Outcome of the last automatic login: logged_in · failed (still on the login page after submitting: wrong password?) ·
+ * challenge (Instagram asked for a check/2FA: the owner answers it on the Instagram screen) · no_form / covered (the
+ * login form wasn't found or something covered it) · busy (the owner was using the Instagram screen) · error.
+ */
+export type AutoLoginResult = 'logged_in' | 'failed' | 'challenge' | 'no_form' | 'covered' | 'busy' | 'error';
+
+/** GET /api/ig/autologin. The password is write-only: never returned. */
+export interface AutoLoginStatus {
+  saved: boolean;
+  /** The saved Instagram username (the owner's own, shown back to them). */
+  username: string | null;
+  enabled: boolean;
+  /** Stopped after repeated failed attempts, until the login is saved again or "Log in now" is pressed. */
+  paused: boolean;
+  /** An attempt is typing or waiting for Instagram's answer. */
+  running: boolean;
+  lastAttemptAt: number | null;
+  lastResult: AutoLoginResult | null;
+}
+
+/** PUT /api/ig/autologin: username and password together (saves them), and/or enabled. */
+export interface AutoLoginSave {
+  username?: string;
+  password?: string;
+  enabled?: boolean;
+}
+
+/** POST /api/ig/autologin/run */
+export interface AutoLoginRun {
+  result: 'started' | 'not_on_login_page' | 'not_saved' | 'busy';
+}
+
 export interface AppState {
   hasOwner: boolean;
   authenticated: boolean;

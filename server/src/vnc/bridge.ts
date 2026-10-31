@@ -11,6 +11,18 @@ const REVALIDATE_MS = 30_000;
 const HIGH_WATER = 8 * 1024 * 1024;
 
 /**
+ * Whether a viewer's WebSocket message is mouse or keyboard input (RFB PointerEvent: type 5, 6 bytes; KeyEvent: type 4,
+ * 8 bytes; noVNC sends them in messages of their own). Only tells the automatic login (ig/autologin.ts) that the owner
+ * is using the screen.
+ */
+export function isInputMessage(buf: Buffer): boolean {
+  const size = buf[0] === 5 ? 6 : buf[0] === 4 ? 8 : 0;
+  if (!size || buf.length % size !== 0) return false;
+  for (let i = 0; i < buf.length; i += size) if (buf[i] !== buf[0] || (size === 8 && (buf[i + 2] !== 0 || buf[i + 3] !== 0))) return false;
+  return true;
+}
+
+/**
  * Authenticated WebSocket ↔ WebSocket bridge to this tenant's x11vnc inside the chromium container. The chromium
  * manager only opens that tunnel for this tenant's bearer token; this bridge is the only way in from the browser, and
  * it requires a valid session plus a same-origin Origin header (enforced by the global onRequest hook).
@@ -73,6 +85,7 @@ export function registerVncRoutes(app: FastifyInstance, ctx: AppContext, link = 
     socket.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
       if (!isBinary) return; // RFB is binary-only
       const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data);
+      if (isInputMessage(buf)) ctx.ownerInputAt = Date.now();
       if (tunnel && !tunnel.destroyed) tunnel.write(buf);
       else if (!tunnel && early.length < 64) early.push(buf);
     });

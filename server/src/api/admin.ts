@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { AuditEntry, Settings } from '../../../shared/api.js';
+import type { AuditEntry, AutoLoginRun, Settings } from '../../../shared/api.js';
 import type { AppContext } from '../context.js';
 import { verifyOwnerSecret } from '../auth/routes.js';
 import { sessionPrivateKey } from '../auth/sessions.js';
 import { PASSWORD_MAX } from '../crypto/password.js';
 import { AppError, Errors } from '../errors.js';
 import { requireSession } from '../http/server.js';
+import { PASSWORD_MAX_IG, USERNAME_MAX, validCredentials } from '../ig/autologin.js';
 import { parseSessionCookies, SESSION_INPUT_MAX } from '../ig/cookies.js';
 import { SettingsSchema } from '../settings.js';
 
@@ -40,6 +41,36 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
     await ctx.ig.importSession(cookies);
     repo.audit('ig_session_imported', req.ip, `${cookies.length} cookies`);
     return { ok: true };
+  });
+
+  // Automatic login with a saved Instagram password (ig/autologin.ts). The password is write-only and never logged.
+  app.get('/api/ig/autologin', async () => ctx.ig.autoLoginStatus());
+
+  app.put('/api/ig/autologin', { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, async (req) => {
+    const body = z
+      .object({ username: z.string().max(USERNAME_MAX).optional(), password: z.string().max(PASSWORD_MAX_IG).optional(), enabled: z.boolean().optional() })
+      .strict()
+      .parse(req.body);
+    const creds = body.username !== undefined || body.password !== undefined;
+    if (creds && (body.username === undefined || body.password === undefined || !validCredentials(body.username, body.password))) {
+      throw new AppError(400, 'invalid_credentials', 'Enter the Instagram username and password.');
+    }
+    if (!creds && !ctx.ig.autoLoginStatus().saved) throw new AppError(400, 'not_saved', 'Save a username and password first.');
+    ctx.ig.saveAutoLogin(body);
+    repo.audit(creds ? 'ig_autologin_saved' : 'ig_autologin_changed', req.ip, body.enabled === undefined ? null : `enabled=${body.enabled}`);
+    return ctx.ig.autoLoginStatus();
+  });
+
+  app.delete('/api/ig/autologin', async (req) => {
+    ctx.ig.removeAutoLogin();
+    repo.audit('ig_autologin_deleted', req.ip);
+    return ctx.ig.autoLoginStatus();
+  });
+
+  app.post('/api/ig/autologin/run', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (req) => {
+    const res: AutoLoginRun = { result: await ctx.ig.autoLoginNow().catch(() => 'not_on_login_page' as const) };
+    repo.audit('ig_autologin_run', req.ip, res.result);
+    return res;
   });
 
   /* ------------------------------------------------------------ settings */

@@ -17,6 +17,10 @@ Read these first, every session:
 - The app only *reads* Instagram's message stream (CDP Network events). Never send frames on it.
 - While Instagram is logged out or on a login/challenge page, nothing may be attached to the tab (`ig/loginwatch.ts`):
   no puppeteer Page, no CDP domains in the page or its frames. Instagram's login notices debuggers and loops on captchas.
+  Exceptions: the watch's single navigate/reload, and the automatic login's read-only DOM look (`ig/loginform.ts`),
+  which detaches before typing. The automatic login types through VNC (`vnc/rfb.ts`), never with CDP `Input.*`.
+- The saved Instagram password (`ig/autologin.ts`) is a credential: write-only in the API, sealed in
+  `app_state.ig_autologin` under `<DATA_DIR>/autologin.key`, never logged or echoed. Keep its restraint rules.
 - Keep the browser looking normal: WebGL (Mesa llvmpipe), the server's time zone (`TZ`), no automation flags.
 - A session pasted by the owner (`POST /api/ig/session`, `ig/cookies.ts`) is a credential: never log it, never echo a
   value in an error, never store it outside the Chromium profile.
@@ -36,12 +40,12 @@ Read these first, every session:
 - Commits end with the Co-Authored-By trailer. CI must stay green: it publishes the GHCR images on `main`.
 
 ## Commands
-- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 197 tests).
+- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 227 tests).
 - Chromium manager: `cd chromium/manager && CGO_ENABLED=0 go test ./...`.
 - Web: `cd web && npm test && npm run build`.
 - Full stack from source: `scripts/smoke.sh` (incl. multi-user checks). Standalone layout: `scripts/smoke.sh --deploy`.
 - Multi-user against a running stack: `scripts/dev/multiuser-e2e.mts` (see its header).
-- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (61 checks).
+- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (72 checks).
 - UI screenshots: `scripts/dev/README.md` (`ui-shots.mts`). Sample data: `server/src/testutil/seed.ts`.
 
 ## Gotchas learned the hard way

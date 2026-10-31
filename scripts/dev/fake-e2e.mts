@@ -10,6 +10,8 @@
  * The Chromium container gets a test-only URL policy that also allows the fake host.
  */
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import crypto from 'node:crypto';
+import dns from 'node:dns';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +26,8 @@ const FAKE = `http://127.0.0.1:${FAKE_PORT}`;
 const BASE = `https://localhost:${HTTPS}`;
 const ORIGIN = BASE;
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // the stack's internal CA; test only
+// The ports are published on IPv4 only; `localhost` must not resolve to ::1 first (flaky "fetch failed").
+dns.setDefaultResultOrder('ipv4first');
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'igl-e2e-'));
 const envFile = path.join(work, 'e2e.env');
@@ -46,6 +50,7 @@ function dc(...args: string[]): string {
 /* --------------------------------------------------------------- clients */
 
 let cookie = '';
+const jar = new Map<string, string>();
 /** The session pasted in the "log in with your own browser" check: must never reach the logs or the DB. */
 let pastedSession = 'not-set';
 let csrf = '';
@@ -64,8 +69,14 @@ async function api(method: string, url: string, body?: unknown, raw?: { data: Bu
     payload = JSON.stringify(body ?? {});
   }
   const r = await fetch(`${BASE}${url}`, { method, headers, body: payload, redirect: 'manual' });
-  const set = r.headers.get('set-cookie');
-  if (set) cookie = set.split(';')[0]!;
+  // A small cookie jar: the gateway sets the tenant cookie and the session cookie (one set-cookie each).
+  for (const c of r.headers.getSetCookie()) {
+    const [pair] = c.split(';');
+    const name = pair!.slice(0, pair!.indexOf('='));
+    jar.set(name, pair!);
+    if (/Max-Age=0|=;/i.test(c)) jar.delete(name);
+  }
+  cookie = [...jar.values()].join('; ');
   const buf = Buffer.from(await r.arrayBuffer());
   let json: unknown = null;
   try {
@@ -95,18 +106,26 @@ async function until<T>(what: string, fn: () => Promise<T | null | undefined | f
   return null;
 }
 
-/** Whether a CDP client is attached to the Instagram tab (asked from inside the app container: CDP is internal). */
+/**
+ * Whether a CDP client is attached to the Instagram tab. Asked from inside the app container through the chromium
+ * manager's relay (CDP is internal and token-checked), with tenant 1's instance token derived like the supervisor does.
+ */
 function tabAttached(): boolean | null {
-  const js = `require('node:dns/promises').lookup('chromium', { family: 4 }).then(async ({ address }) => {
-    const v = await (await fetch('http://' + address + ':9223/json/version')).json();
-    const ws = new WebSocket('ws://' + address + ':9223' + new URL(v.webSocketDebuggerUrl).pathname);
-    ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Target.getTargets' }));
-    ws.onmessage = (m) => {
-      const t = JSON.parse(m.data).result.targetInfos.find((t) => t.type === 'page' && t.url.startsWith('http://fakeig'));
+  const env = fs.readFileSync(envFile, 'utf8');
+  const secret = /^CONTROL_SECRET=(.*)$/m.exec(env)?.[1] ?? /^VNC_PASSWORD=(.*)$/m.exec(env)?.[1] ?? '';
+  const token = crypto.createHmac('sha256', secret).update('igl/chromium/instance/1').digest('hex');
+  const js = `const WebSocket = require('/app/node_modules/ws');
+  const h = { authorization: 'Bearer ${token}' };
+  (async () => {
+    const v = await (await fetch('http://chromium:9223/i/1/cdp/json/version', { headers: h })).json();
+    const ws = new WebSocket('ws://chromium:9223/i/1/cdp' + new URL(v.webSocketDebuggerUrl).pathname, { headers: h });
+    ws.on('open', () => ws.send(JSON.stringify({ id: 1, method: 'Target.getTargets' })));
+    ws.on('message', (m) => {
+      const t = JSON.parse(String(m)).result.targetInfos.find((t) => t.type === 'page' && t.url.startsWith('http://fakeig'));
       console.log(JSON.stringify(t ? t.attached : null));
       process.exit(0);
-    };
-  });`;
+    });
+  })().catch(() => { console.log('null'); process.exit(0); });`;
   try {
     return JSON.parse(dc('exec', '-T', 'app', 'node', '-e', js).trim()) as boolean | null;
   } catch {
@@ -157,6 +176,8 @@ async function main() {
   const started = Date.now();
 
   console.log('== checks');
+  // `compose --wait` can return a moment before Caddy serves the site.
+  await until('site answers', async () => (await api('GET', '/api/state')).status === 200, 60_000);
   const su = await api('POST', '/api/auth/signup', { setupToken: env.SETUP_TOKEN, username: 'owner', password: 'correct-horse-battery-staple' });
   check(su.status === 200, 'signup');
   csrf = (await api('GET', '/api/state')).json.csrfToken;
@@ -355,14 +376,44 @@ async function main() {
   check(!!back, 'ready again after logging back in');
   check(tabAttached() === true, 'the app attaches to the tab again once logged in');
 
+  // Instagram ends the session; the saved login is typed in by itself (VNC input, like a person).
+  const IG_PW = 'Fake-Pw!9 with Space';
+  await fake('/control/credentials', { username: 'owner.account', password: IG_PW });
+  const saved = await api('PUT', '/api/ig/autologin', { username: 'owner.account', password: IG_PW });
+  check(saved.status === 200 && saved.json?.saved === true && !JSON.stringify(saved.json).includes(IG_PW), 'automatic login saved (password not echoed)');
+  await fake('/control/logout', {});
+  await api('POST', '/api/ig/restart', {});
+  await until('login state for the automatic login', async () => ((await api('GET', '/api/ig/status')).json?.state === 'login' ? true : null), 60_000);
+  const auto = await until('ready after the automatic login', async () => ((await api('GET', '/api/ig/status')).json?.state === 'ready' ? true : null), 120_000);
+  check(!!auto, 'logged back in automatically with the saved password');
+  const form = (await fakeLog()).log.filter((e) => e.kind === 'login_form').at(-1);
+  check(form?.ok === true, 'the login form got the right username and password');
+  check(form?.detail?.untrusted === 0 && form?.detail?.webdriver === false, `only trusted input events, no webdriver flag (${form?.detail?.untrusted})`);
+  const gaps: number[] = form?.detail?.gaps ?? [];
+  const mean = gaps.reduce((x, y) => x + y, 0) / Math.max(1, gaps.length);
+  const sd = Math.sqrt(gaps.reduce((x, y) => x + (y - mean) ** 2, 0) / Math.max(1, gaps.length));
+  check(form?.detail?.moves > 30 && form?.detail?.clicks >= 1, `the mouse moved there like a hand (${form?.detail?.moves} mousemove events, ${form?.detail?.raw} pointer samples, ${form?.detail?.clicks} clicks)`);
+  check(gaps.length > 15 && mean > 60 && sd / mean > 0.2, `typing rhythm is human (mean ${Math.round(mean)} ms, sd ${Math.round(sd)} ms)`);
+  check((await api('GET', '/api/ig/autologin')).json?.lastResult === 'logged_in', 'automatic login reports success');
+  // A manual logout is respected: no automatic login afterwards.
+  await api('POST', '/api/ig/logout', {});
+  await until('login state after a manual logout', async () => ((await api('GET', '/api/ig/status')).json?.state === 'login' ? true : null), 60_000);
+  const before = (await fakeLog()).log.filter((e) => e.kind === 'login_form').length;
+  await sleep(20_000);
+  check((await fakeLog()).log.filter((e) => e.kind === 'login_form').length === before, 'no automatic login after the owner logged out on purpose');
+  check(tabAttached() === false, 'nothing attached to the tab after the automatic login gave way');
+  const run = await api('POST', '/api/ig/autologin/run', {});
+  check(run.json?.result === 'started', `"Log in now" starts it anyway (${run.json?.result})`);
+  check(!!(await until('ready after "Log in now"', async () => ((await api('GET', '/api/ig/status')).json?.state === 'ready' ? true : null), 90_000)), 'ready after "Log in now"');
+
   // No plaintext in the data volume.
   const dump = execFileSync('docker', ['compose', '--env-file', envFile, '-p', PROJECT, '-f', path.join(ROOT, 'docker-compose.yml'), '-f', path.join(work, 'override.yml'), 'exec', '-T', '-u', '10001', 'app', 'sh', '-c', 'cat /data/*.db* | base64 -w0'], { encoding: 'utf8', maxBuffer: 1 << 28 });
   const db = Buffer.from(dump, 'base64');
-  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig', 'story.teller', 'Story Teller', pastedSession].filter((s) => db.includes(Buffer.from(s)));
+  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig', 'story.teller', 'Story Teller', pastedSession, IG_PW, 'owner.account'].filter((s) => db.includes(Buffer.from(s)));
   check(leaks.length === 0, `no plaintext content, names or links in the database files${leaks.length ? ` (found: ${leaks.join(', ')})` : ''}`);
 
   const logs = dc('logs', '--no-color', 'app');
-  const logLeaks = ['a secret', 'meet at', 'Ali Veli', 'DTSG_TOKEN', 'CSRF_TOKEN', pastedSession].filter((s) => logs.includes(s));
+  const logLeaks = ['a secret', 'meet at', 'Ali Veli', 'DTSG_TOKEN', 'CSRF_TOKEN', pastedSession, IG_PW].filter((s) => logs.includes(s));
   check(logLeaks.length === 0, `no content or tokens in the app logs${logLeaks.length ? ` (found: ${logLeaks.join(', ')})` : ''}`);
   void ME;
   void at;
@@ -370,7 +421,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    bad(`crashed: ${(e as Error).stack ?? e}`);
+    bad(`crashed: ${(e as Error).stack ?? e}${(e as { cause?: unknown }).cause ? ` (cause: ${String((e as { cause?: unknown }).cause)})` : ''}`);
   })
   .finally(() => {
     console.log(`== result: ${pass} passed, ${fail} failed`);

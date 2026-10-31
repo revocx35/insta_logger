@@ -1,4 +1,4 @@
-import type { IgStatus, SendMediaKind, SendResult, StoryStatus } from '../../shared/api.js';
+import type { AutoLoginRun, AutoLoginSave, AutoLoginStatus, IgStatus, SendMediaKind, SendResult, StoryStatus } from '../../shared/api.js';
 import type { Config } from './config.js';
 import type { SessionCookie } from './ig/cookies.js';
 import type { Downloader } from './ig/media.js';
@@ -44,6 +44,11 @@ export interface IgController {
   logout(): Promise<void>;
   /** Logs in with a session (cookies) from the owner's own browser, instead of the login form. */
   importSession(cookies: SessionCookie[]): Promise<void>;
+  /** Automatic login with a saved Instagram password (ig/autologin.ts). */
+  autoLoginStatus(): AutoLoginStatus;
+  saveAutoLogin(input: AutoLoginSave): void;
+  removeAutoLogin(): void;
+  autoLoginNow(): Promise<AutoLoginRun['result']>;
   /** Story logging: status and "check now". */
   storyStatus(): StoryStatus;
   checkStoriesNow(): Promise<void>;
@@ -64,6 +69,8 @@ export class AppContext {
   readonly routeTable: { method: string; url: string; public: boolean }[] = [];
   /** Brute-force throttle shared by every credential check. */
   readonly throttle: Throttle;
+  /** When the owner last moved the mouse or typed in the VNC viewer (the automatic login keeps its hands off then). */
+  ownerInputAt = 0;
 
   constructor(
     readonly config: Config,
@@ -127,6 +134,16 @@ export class NullIg implements IgController {
   }
   async importSession(_cookies: SessionCookie[]): Promise<void> {
     throw Errors.unavailable('Instagram is not enabled.');
+  }
+  autoLoginStatus(): AutoLoginStatus {
+    return { saved: false, username: null, enabled: false, paused: false, running: false, lastAttemptAt: null, lastResult: null };
+  }
+  saveAutoLogin(_input: AutoLoginSave): void {
+    throw Errors.unavailable('Instagram is not enabled.');
+  }
+  removeAutoLogin(): void {}
+  async autoLoginNow(): Promise<AutoLoginRun['result']> {
+    return 'not_on_login_page';
   }
   retryMedia(): boolean {
     return false;

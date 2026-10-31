@@ -562,6 +562,18 @@ label.switch {
   gap: 6px;
   margin-bottom: 10px;
 }
+.autologin-form input {
+  width: 100%;
+  max-width: 420px;
+}
+.autologin-state,
+.autologin-actions {
+  margin: 8px 0;
+  align-items: center;
+}
+.warn-text {
+  color: var(--warn);
+}
 .session-import textarea {
   width: 100%;
   font-family: var(--mono, ui-monospace, monospace);

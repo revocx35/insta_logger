@@ -220,7 +220,8 @@ server/src/
   auth/               signup, login, logout, recovery, TOTP, password; sessions; throttle
   http/               server factory, security headers/CSP, static web UI, error handler, ZIP streaming
   api/                chats, messages, media (Range, ZIP), search, unsent feed, SSE, settings, audit, wipe, sending
-  vnc/                authenticated WebSocket ↔ the tenant's x11vnc, through the manager's tunnel
+  vnc/                authenticated WebSocket ↔ the tenant's x11vnc, through the manager's tunnel (bridge.ts; also notes
+                      when the owner moves the mouse/types); rfb.ts + des.ts: the app's own input-only RFB client
   ig/
     service.ts        IgService: connects to Chromium, keeps one Instagram tab on the inbox, login/challenge detection,
                       watchdog, reconnects, timers (reconcile, avatars), applies deltas in order
@@ -228,6 +229,10 @@ server/src/
     browser.ts        tab choice, URL classification (inbox/thread/login/challenge)
     loginwatch.ts     while logged out: tab list + cookie jar (browser-level CDP through the manager) without attaching;
                       opens/reloads the login page with a one-command attach; decides when to attach (pure, tested)
+    autologin.ts      automatic login with the saved Instagram password: sealed storage (own key file), restraint
+                      policy (pure, tested), one attempt = read the form, play the human input plan over VNC
+    loginform.ts      where the login form is: one short DOM-only read (getDocument/getContentQuads/hit test), detach
+    humaninput.ts     human-like input plans (pure, seeded tests): Bézier mouse paths, Fitts timing, typing rhythm, typos
     page.ts           IgPage: own CDP session on the tab — reads the stream (Network.webSocketFrameReceived, also in
                       workers), learns doc ids + headers from the tab's GraphQL requests, runs GraphQL inside the page,
                       downloads files through the browser (Network.loadNetworkResource + IO.read), login cookies check
@@ -295,6 +300,30 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   They go into the cookie jar with `Storage.setCookies` (browser-level: `.instagram.com`, Secure, `sessionid` HttpOnly),
   the tab is sent to the inbox, and the login watch attaches once Instagram accepts the session. The pasted text is a
   credential: never logged (errors are generic and name at most the cookie), never stored outside the Chromium profile.
+* **Automatic login with a saved password** (`ig/autologin.ts`, `loginform.ts`, `humaninput.ts`, `vnc/rfb.ts`;
+  `GET/PUT/DELETE /api/ig/autologin`, `POST /api/ig/autologin/run`; Instagram page panel in web and Android). Instagram
+  ends web sessions every few weeks. When the owner saved their Instagram username + password, the login watch hands
+  every poll on the login page to `AutoLogin.consider`, which starts one attempt when: a login is saved and on, the page
+  has been showing for a random 4–12 s, the owner hasn't used the VNC screen for 2 min, the last attempt is ≥ 10 min
+  ago (≥ 2 min when the form wasn't found), fewer than 2 failures in a row (then *paused* until saved again or "Log in
+  now"), and the owner didn't log Instagram out on purpose (`logout()` suppresses it until the next login).
+  An attempt: (1) `readLoginForm` attaches to the tab for a handful of **read-only DOM/Page commands**
+  (`DOM.getDocument`, `Page.getLayoutMetrics`, `DOM.getContentQuads`, `DOM.getNodeForLocation` as a hit test that
+  nothing covers the fields) and detaches — no Runtime, no script in the page, no `*.enable`, like the one-command
+  `Page.navigate` the watch already does; fields: the first password input, the text/email/tel input before it, the
+  submit / "Log in" button after it. (2) A plan from `humaninput.ts`: pointer drifts in from a random spot; cubic-Bézier
+  paths with minimum-jerk speed, Fitts's-law duration, tremor, 8–16 ms event spacing, occasional overshoot + correction;
+  off-centre click with a human hold; Ctrl+A then typing with log-normal gaps (median 120–190 ms per run), overlapping
+  key holds, Shift for capitals/symbols, "thinking" pauses, rare neighbour-key typos erased with Backspace; to the
+  password by mouse or Tab; submit by Enter or by clicking the button. (3) The plan is played as RFB pointer/key events
+  into the tenant's x11vnc (`RfbInput`, VNC auth with the per-start VNC password; DES is in `vnc/des.ts` because Node's
+  OpenSSL 3 dropped it): X input via XTEST, so the page sees trusted events, `navigator.webdriver` stays false and
+  nothing is attached while typing. Owner input during the attempt aborts it (keys/button released). (4) Verdict: the
+  watch seeing a session (`attach`) or `ig_ready` = `logged_in`; a challenge page = `challenge` (left to the owner);
+  still on the login page after 60 s = `failed`. Status line: "Logging in with the saved password…" / "did not work".
+  Storage: `app_state.ig_autologin` = `{v, enabled, sealed}` with AES-256-GCM (AAD `igl/v1|app_state|ig_autologin`)
+  under a random 32-byte key in `<DATA_DIR>/autologin.key` (0600, the worker's unix user); `ig_autologin_status` holds
+  only times/results/failure count. Audit: `ig_autologin_saved/changed/deleted/run/attempt/result` (no values).
 * **Logged in** = `sessionid` and `ds_user_id` cookies present for the Instagram origin (values never logged) and not on
   a login/challenge URL. The account: `CurrentUserInitialData.IG_USER_EIMU` (messaging id = sender id of own messages),
   `PolarisViewer.data` (Instagram id, username, name), `IGDMqttWebDeviceID.clientId` (needed by the inbox query);
@@ -371,7 +400,15 @@ purple→blue gradient own bubbles, grey incoming), light and dark, single pane 
 malicious message content (HTML/SVG/scripts inside messages or media), theft of disk or backups,
 lateral movement between containers, brute force, hostile data from the Instagram tab, abuse of sending, and the
 owner's pasted Instagram session (a credential: only owner-authenticated + CSRF, size-capped, whitelisted cookie
-names, never logged).
+names, never logged), and the saved Instagram password for the automatic login (write-only in the API, CSRF +
+rate-limited, sealed under a key file kept apart from the database, never logged; a full read of the tenant's data
+directory recovers it — the same exposure as the Instagram session cookies in the browser profile, accepted because the
+worker must use it with nobody logged in).
+
+**Account-safety side of the automatic login:** Instagram can flag scripted logins. Hence input through X (VNC/XTEST)
+rather than CDP `Input.*`, no debugger on the page while typing, human timing, at most one attempt per logout and a
+pause after two failures, and checks/2FA always left to the owner. It cannot make a login undetectable; it makes it
+look like the owner typing on that machine.
 
 **Accepted / out of scope:** a fully compromised running host (it can read process memory and the live Instagram
 login), and Instagram's terms of use (automated browser; restriction risk is the user's decision).
@@ -553,6 +590,10 @@ Story usernames/names use AAD contexts `story_users|username|<id>` / `story_user
 | GET | /api/reels?cursor= · /api/reels/media/:ref | ✓ | reels feed page (`WebPage<WebPost>`) · a reel's video/picture |
 | GET · POST | /api/reels/:id/comments · /api/reels/:id/like · POST /api/reels/:id/comments | ✓ | comments page · `{like}` · `{text}` (≤ 2200) |
 | POST | /api/ig/session | ✓ | `{cookies}`: log in with a session from the owner's own browser (cURL / Cookie header / JSON); 409 when logged in |
+| GET | /api/ig/autologin | ✓ | `AutoLoginStatus` (saved, username, enabled, paused, running, last attempt/result; never the password) |
+| PUT | /api/ig/autologin | ✓ | `AutoLoginSave`: `{username, password}` together saves (resets the pause), `{enabled}` alone toggles; 10/15 min |
+| DELETE | /api/ig/autologin | ✓ | forget the saved login (state + key file) |
+| POST | /api/ig/autologin/run | ✓ | "Log in now" on the login page (ignores pause/cooldown/manual logout) → `AutoLoginRun`; 5/15 min |
 | POST | /api/onboarding/complete | ✓ | requires state ready/syncing |
 | GET / WS | /api/vnc/credentials · /api/vnc | ✓ | noVNC password · bridge to chromium:5900 |
 | GET | /api/chats | ✓ | `ChatSummary[]` |
@@ -607,7 +648,7 @@ plain-http media links are accepted only from that origin). Per worker/user (set
   (and no anonymous access to it), creating a user, `/internal` unreachable from outside, and one unix user per process.
 * `chromium/manager` (Go, `CGO_ENABLED=0 go test ./...`, also run in the image build): token vectors shared with
   `supervisor/tokens.ts`, the route allowlist (version, tab list, browser WebSocket; nothing else), the VNC tunnel.
-* `scripts/dev/fake-e2e.mts` (61 checks; story logging (off by default, check now, author avatar, no live videos, Range-served video, nothing twice, never seen), reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
+* `scripts/dev/fake-e2e.mts` (72 checks; automatic login (right credentials, trusted input only, mouse samples and typing rhythm, manual logout respected, "Log in now"); story logging (off by default, check now, author avatar, no live videos, Range-served video, nothing twice, never seen), reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
   login detection and re-login (nothing attached to the tab while logged out; logging in with a session pasted as
   "Copy as cURL", refused while logged in, never in the logs or DB), history import (3 chats, paging, history photo), live stream message, unsend kept,
   edit history, reaction, live photo downloaded through the browser, sending (text+reply, react/unreact, edit, unsend

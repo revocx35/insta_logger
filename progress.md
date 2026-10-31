@@ -27,6 +27,10 @@
 - [x] Tests: 197 server (incl. 11 multi-user worker tests and the gateway/supervisor suites), Go manager suite, web build
 - [x] Docs updated (AGENTS, ARCHITECTURE, README, SECURITY, CLAUDE, DEVLOG)
 
+## Done (2026-10-31, automatic login)
+- [x] Saved Instagram login (sealed, write-only) typed in by itself after a logout: VNC input with human mouse paths and
+      typing rhythm, read-only DOM look for positions, restraint rules; web + Android panel; unit + fake-e2e tests
+
 ## Open
 - [ ] First run with the owner's real Instagram account (docs/instagram-notes.md "First live check")
 - [ ] Message requests folder in the history import (only INBOX is paged today; requests arrive live)

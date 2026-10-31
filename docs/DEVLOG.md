@@ -112,3 +112,35 @@ than reinvented:
 - Lesson: `.grow` has a later `min-width: 200px` (admin tables) — don't reuse it as a flex spacer.
 - Note: `fake-e2e.mts` currently fails at "Instagram ready" after the multi-user change (it polls `/api/ig/status`
   before onboarding); the stack itself comes up — needs a follow-up.
+
+## 2026-10-31 — Automatic login with a saved password
+
+- Owner: Instagram logs the account out every couple of weeks; wants the password saved and typed in automatically
+  on the login screen, with realistic mouse movement and typing to avoid bot detection.
+- Design constraint: nothing may be attached to the tab while logged out (captcha loops, 2026-10-18). So input goes
+  through **VNC** (the app's own RFB client → the tenant's x11vnc → XTEST): trusted events, no debugger, same path as
+  the owner's viewer. Positions come from one short **read-only DOM look** (`loginform.ts`: getDocument,
+  getContentQuads, getNodeForLocation as hit test; no Runtime, no enable), detached before any input.
+- `humaninput.ts`: Bézier paths + minimum-jerk timing + Fitts's law + tremor + overshoot; log-normal typing gaps,
+  overlapping holds, explicit Shift, pauses, rare neighbour-key typos erased. Pure + seeded, so tests replay a plan
+  like X would and check the typed text is exact (200 seeds × 5 texts with heavy typo rates).
+- Node 24's OpenSSL 3 has no DES, which VNC auth needs → `vnc/des.ts` (FIPS vector + an OpenSSL-legacy cross-check).
+- Restraint (account safety): settle 4–12 s, one attempt per logout, 10 min cooldown, pause after 2 failures,
+  suppressed after a manual logout, never while the owner used the VNC screen in the last 2 min (the bridge spots
+  noVNC pointer/key messages), checks/2FA left to the owner.
+- Storage: sealed in `app_state` under `<DATA_DIR>/autologin.key` (the worker must read it unattended, so it can't be
+  under the owner's password like logged data). Documented as an accepted exposure in ARCHITECTURE/SECURITY.
+- Lesson: the Instagram page keeps a VNC viewer open while logged out, so "a viewer is connected" can't mean "the
+  owner is busy" — owner *input* recency is the signal.
+- Fake Instagram: the login page is now a real form that reports trusted-event counts, mouse moves and key gaps;
+  the app's "Log out" endpoint exists. fake-e2e: automatic login checks (right credentials, trusted input only,
+  human rhythm, success state, manual-logout respected, "Log in now", password not in logs/DB).
+- Tests: 227 server (30 new), web 11 + build. Android client 0.8.0: Automatic login panel on the Instagram screen.
+- Measured, not guessed: the first e2e runs saw only 6–15 `mousemove` events per login. A/B on a kept stack (extra
+  x11vnc instances on the same display, the app's own modules playing a seeded plan): fresh x11vnc 41/58 samples,
+  the same x11vnc after 75 s idle 12/58 — its naps and screen-blank throttling delivered input in ~250 ms bursts that
+  Chromium merged. Manager now runs x11vnc with `-pointer_mode 1 -nonap -sb 0` (40/58 after idle; idle CPU without
+  clients unchanged). TCP_NODELAY on the app's tunnel socket stays (correct, but it was not the cause).
+- fake-e2e repaired (it had been failing since multi-user): a cookie jar for the gateway's two cookies, `tabAttached()`
+  through the manager relay with tenant 1's instance token, IPv4-first (`localhost` → ::1 was refused), and a wait
+  until Caddy serves before signup. 72/72. The "downtime unsend flagged" check is timing-sensitive (failed 2 of 5 runs).

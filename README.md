@@ -380,6 +380,15 @@ coming back?* on the same page):
 insta_logger keeps only Instagram's own cookies from what you paste (`sessionid`, `ds_user_id`, `csrftoken`, `mid`,
 `ig_did`, `datr`, …), puts them into its browser and never logs or stores them anywhere else.
 
+**Logged out every few weeks?** Save your Instagram login in the panel *Automatic login* on the **Instagram** page.
+When Instagram ends the session, insta_logger logs back in by itself on that screen — it moves the mouse and types
+like a person (curved, unevenly paced mouse paths; irregular typing with the odd corrected typo), through the same
+virtual screen you use, with nothing attached to the page. It tries once per logout, waits while you are using the
+screen, pauses after two failed tries, and leaves captchas, "was this you?" checks and 2FA codes to you. *Log in now*
+starts it by hand. The password is stored encrypted on the server (under a key file kept apart from the database),
+never shown again and never logged — but the server must be able to read it on its own, so anyone with full access
+to the server could recover it, just like the Instagram session it already holds.
+
 From now on every new direct message is logged; the newest `HISTORY_PER_CHAT` messages of each chat are imported too.
 
 ## Android app
@@ -456,7 +465,7 @@ docker compose down               # stop (data stays in Docker volumes)
 cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck
 cd web && npm ci && npm test && npm run build
 scripts/smoke.sh                                   # full stack in an isolated compose project (23 checks, real instagram.com login page)
-cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (61 checks: stories, login hands-off, pasted session, reels, stream, unsend, media, sending, reconcile)
+cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (72 checks: stories, login hands-off, pasted session, automatic login, reels, stream, unsend, media, sending, reconcile)
 ```
 
 Docs: [ARCHITECTURE.md](ARCHITECTURE.md) (design), [docs/instagram-notes.md](docs/instagram-notes.md) (Instagram Web

@@ -13,7 +13,8 @@
  * Control API (for the test driver, host only): GET /control/log · POST /control/deliver {chatId, message} ·
  * POST /control/delta {delta} · POST /control/store {op: add|remove, chatId, message|messageId} · POST /control/logout
  * (ends every session; the login page stops logging in) · POST /control/login (the login page logs in again) ·
- * POST /control/issue-session (a login made in another browser: answers its Cookie header)
+ * POST /control/issue-session (a login made in another browser: answers its Cookie header) · POST /control/credentials
+ * {username, password} (what the login form accepts; it logs how it was filled in as `login_form`)
  */
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -74,7 +75,32 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Instagram 
     body: 'fb_api_req_friendly_name=IGDThreadDetailQuery&doc_id=4242424242424242&variables=%7B%22thread_fbid%22%3A%22${CHAT}%22%7D', credentials: 'include' });
 </script></body></html>`;
 
-const LOGIN = `<!doctype html><html><body><h1>Log into Instagram (fake)</h1><form method="post" action="/accounts/login/ajax/"><button>Log in</button></form></body></html>`;
+/**
+ * A login form like Instagram's (username, password, "Log in"). It records how it was filled in — trusted events,
+ * mouse movements, key timing — and sends that with the login (the automatic login's e2e checks).
+ */
+const LOGIN = `<!doctype html><html><head><title>Login • Instagram (fake)</title></head><body style="font-family:sans-serif;background:#fafafa">
+<form id="f" style="width:300px;margin:140px auto;display:flex;flex-direction:column;gap:8px;padding:24px;border:1px solid #dbdbdb;background:#fff">
+<h1 style="font-size:20px">Log into Instagram (fake)</h1>
+<label><input name="username" type="text" aria-label="Phone number, username, or email" style="width:100%;height:36px;box-sizing:border-box"></label>
+<label><input name="password" type="password" aria-label="Password" style="width:100%;height:36px;box-sizing:border-box"></label>
+<button type="submit" style="height:32px">Log in</button><p id="err"></p></form>
+<script>
+const t = { moves: 0, raw: 0, clicks: 0, untrusted: 0, keys: [] };
+addEventListener('pointermove', (e) => { t.raw += e.getCoalescedEvents ? Math.max(1, e.getCoalescedEvents().length) : 1; }, true);
+t.trace = [];
+addEventListener('mousemove', (e) => { t.moves++; if (!e.isTrusted) t.untrusted++; if (t.trace.length < 400) t.trace.push([Math.round(e.timeStamp), e.clientX, e.clientY]); }, true);
+addEventListener('mousedown', (e) => { t.clicks++; if (!e.isTrusted) t.untrusted++; }, true);
+addEventListener('keydown', (e) => { t.keys.push(Math.round(e.timeStamp)); if (!e.isTrusted) t.untrusted++; }, true);
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new URLSearchParams(new FormData(e.target));
+  fd.set('telemetry', JSON.stringify({ ...t, webdriver: navigator.webdriver === true }));
+  const r = await (await fetch('/accounts/login/ajax/', { method: 'POST', body: fd, credentials: 'include' })).json();
+  if (r.authenticated) location.href = '/direct/inbox/';
+  else document.getElementById('err').textContent = 'Sorry, your password was incorrect.';
+});
+</script></body></html>`;
 
 /* --------------------------------------------------------------- helpers */
 
@@ -113,6 +139,8 @@ const sockets = new Set<WebSocket>();
 const log: { kind: string; name?: string; ok?: boolean; detail?: unknown }[] = [];
 /** Whether the login page logs a browser in (as if the owner typed the password). */
 let loggedIn = true;
+/** The account's username and password for the login form (POST /control/credentials). */
+let credentials: { username: string; password: string } | null = null;
 /** Valid `sessionid` values: a browser is logged in when it sends one of them. */
 const sessions = new Set<string>();
 let counter = 1000;
@@ -342,6 +370,9 @@ const server = http.createServer((req, res) => {
       } else if (p === '/control/login') {
         loggedIn = true;
         res.writeHead(200).end('ok');
+      } else if (p === '/control/credentials') {
+        credentials = { username: String(b.username), password: String(b.password) };
+        res.writeHead(200).end('ok');
       } else if (p === '/control/issue-session') {
         // A login made in another browser: its Cookie header, as the owner would copy it.
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ cookie: `csrftoken=CSRF_TOKEN_x; ds_user_id=${ME_IG}; sessionid=${newSession()}; mid=fakemid` }));
@@ -411,6 +442,30 @@ const server = http.createServer((req, res) => {
       return;
     }
     const session = sessionOf(req);
+    if (p === '/api/v1/web/accounts/logout/ajax/' && req.method === 'POST') {
+      // The app's "Log out": ends this browser's session.
+      if (session) sessions.delete(session);
+      log.push({ kind: 'logout' });
+      res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': cookies(null) }).end('{"status":"ok"}');
+      return;
+    }
+    if (p === '/accounts/login/ajax/' && req.method === 'POST') {
+      // The login form: checks the password and records how the form was filled in (never the values).
+      const form = new URLSearchParams((await body(req)).toString());
+      let tel: { trace?: number[][]; moves?: number; raw?: number; clicks?: number; untrusted?: number; keys?: number[]; webdriver?: boolean } = {};
+      try {
+        tel = JSON.parse(form.get('telemetry') ?? '{}') as typeof tel;
+      } catch {
+        /* none */
+      }
+      const ok = !!credentials && form.get('username') === credentials.username && form.get('password') === credentials.password;
+      const keys = tel.keys ?? [];
+      const gaps = keys.slice(1).map((k, i) => k - keys[i]!);
+      log.push({ kind: 'login_form', ok, detail: { moves: tel.moves ?? 0, raw: tel.raw ?? 0, clicks: tel.clicks ?? 0, untrusted: tel.untrusted ?? -1, webdriver: tel.webdriver ?? null, keys: keys.length, gaps, trace: tel.trace ?? [] } });
+      if (!ok) return void res.writeHead(200, { 'content-type': 'application/json' }).end('{"authenticated":false,"status":"ok"}');
+      res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': cookies(newSession()) }).end('{"authenticated":true,"status":"ok"}');
+      return;
+    }
     if (p.startsWith('/accounts/login')) {
       // Like Instagram: a logged-in browser is sent on from the login page.
       const s = session ?? (loggedIn ? newSession() : null);

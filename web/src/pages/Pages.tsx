@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api/client';
 import { useServerEvents } from '../api/events';
 import { Icon } from '../components/Icon';
 import { MessageBubble } from '../components/MessageBubble';
+import { AutoLoginPanel } from '../components/AutoLogin';
 import { SessionImport } from '../components/SessionImport';
 import { VncViewer } from '../components/VncViewer';
 import { Avatar, ConfirmButton, EmptyState, ErrorNote, IgStatePill, Spinner } from '../components/ui';
@@ -239,6 +240,7 @@ export function InstagramPage() {
           {ig?.state === 'login' ? 'Instagram is logged out. Log in on the screen below.' : 'Instagram asks for a confirmation. Answer it on the screen below.'}
         </div>
       ) : null}
+      <AutoLoginPanel igState={ig?.state} />
       {needsLogin ? <SessionImport /> : null}
       <ErrorNote error={error} />
       <VncViewer viewOnly={viewOnly} className="ig-web-vnc" />
