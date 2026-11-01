@@ -129,3 +129,5 @@ publishes `ghcr.io/revocx35/insta_logger-{app,chromium,caddy}` on `main`. Deploy
   keymap. Shift is pressed explicitly for US-layout capitals/symbols.
 - Instagram renames queries and drops variables (e.g. relay providers): a `{data: null, errors}` answer or an HTML page
   usually means a changed doc id or variables — compare with the tab's own request.
+- The worker decides "is this an /internal route" from the raw URL *and* the matched route (`req.routeOptions.url`): the
+  router percent-decodes, so `/%69nternal/info` used to reach an /internal handler with only the forwarded worker token.
