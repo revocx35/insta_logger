@@ -319,8 +319,9 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   detached); a "Continue" that logs straight in is settled by the verdict below. (2) A plan from `humaninput.ts`: pointer drifts in from a random spot; cubic-Bézier
   paths with minimum-jerk speed, Fitts's-law duration, tremor, 8–16 ms event spacing, occasional overshoot + correction;
   off-centre click with a human hold; Ctrl+A then typing with log-normal gaps (median 120–190 ms per run), overlapping
-  key holds, Shift for capitals/symbols, "thinking" pauses, rare neighbour-key typos erased with Backspace; to the
-  password by mouse or Tab; submit by Enter or by clicking the button. (3) The plan is played as RFB pointer/key events
+  key holds, Shift for capitals/symbols, "thinking" pauses, rare neighbour-key typos erased with Backspace; Escape
+  after the username (closes Chromium's passkey suggestion, which drops over the password field); to the password by
+  mouse or Tab; submit by Enter or by clicking the button. (3) The plan is played as RFB pointer/key events
   into the tenant's x11vnc (`RfbInput`, VNC auth with the per-start VNC password; DES is in `vnc/des.ts` because Node's
   OpenSSL 3 dropped it): X input via XTEST, so the page sees trusted events, `navigator.webdriver` stays false and
   nothing is attached while typing. Owner input during the attempt aborts it (keys/button released). (4) Verdict: the

@@ -31,6 +31,7 @@ export type Step =
 
 export const KEY = {
   tab: 0xff09,
+  escape: 0xff1b,
   enter: 0xff0d,
   backspace: 0xff08,
   shift: 0xffe1,
@@ -336,6 +337,10 @@ export function loginPlan(layout: LoginLayout, username: string, password: strin
   if (layout.username) {
     goClick(layout.username, true);
     steps.push(...selectAll(rng), ...typeText(username, rng, { ...typing, typoRate: 0.03, maxTypos: 2 }));
+    // Chromium's passkey suggestion ("Use passkey from another device") drops down from the focused username field over
+    // the top of the password field: a click there opens the security-key dialog and the keys go astray (2026-11-02).
+    // Escape closes it, as a person would before reaching for the password.
+    steps.push(...pressKey(KEY.escape, rng, uniform(rng, 180, 520)));
   }
   if (layout.username && rng() < 0.3) {
     steps.push(...pressKey(KEY.tab, rng, uniform(rng, 250, 700)));

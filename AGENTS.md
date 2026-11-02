@@ -134,6 +134,11 @@ publishes `ghcr.io/revocx35/insta_logger-{app,chromium,caddy}` on `main`. Deploy
   (or closes) the throwaway window.
 - The gateway strips client `X-IGL-*` headers, so sync's request header is `X-Session-Sync`. The remote sends the tenant
   cookie (both `igl_tenant` and `__Host-igl_tenant`) only as the routing hint the gateway needs.
+- Chromium's passkey suggestion ("Use passkey from another device") drops down from the focused username field over
+  the top ~25 px of the password field; a click there opens a native security-key dialog (invisible to CDP/DOM) and the
+  keys go astray — the password ended up in the username field (2026-11-02). `loginPlan` presses Escape after the
+  username. Don't remove it; reproduce such issues with a no-submit probe (dummy values, final Enter dropped) and the
+  real X screen over VNC, not with page screenshots (browser UI isn't in them).
 - The automatic login maps CSS pixels 1:1 to the VNC screen: Chromium runs in kiosk mode at (0,0) with
   `--force-device-scale-factor=1`. Changing the window flags breaks the click positions.
 - x11vnc runs with `-pointer_mode 1 -nonap -sb 0` (chromium/manager/instance.go): without them, input after idle time

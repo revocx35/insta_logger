@@ -176,3 +176,16 @@ than reinvented:
 - fake-e2e "mouse moved like a hand" threshold 30 → 16 (+ no merging: raw ≤ moves + 2): 2000 plans have 12–85 moves
   (p5 25, 13 % ≤ 30); the old x11vnc nap bug delivered 6–15. It failed twice today on short plans, not on delivery.
 - Tests: 243 server (13 new), web 11, fake-e2e 83/83 (11 new), Android 67 + screenshot `phone_session_sync`.
+
+## 2026-11-02 — separate login typed the password into the username field
+
+- Owner after pairing: the login "entered the username, then deleted it and typed the password there". Home logged
+  `failed`, VPS `home_failed`.
+- Not the window (the real X screen over VNC — a small RFB framebuffer reader — matched page coordinates exactly).
+  A no-submit probe (dummy values, final Enter dropped, seeded plans) reproduced it on seed 2 every time; bisecting
+  the plan's steps found the click into the password field. The X screen just before showed Chromium's passkey
+  suggestion "Use passkey from another device" dropped down from the focused username field over the top of the
+  password field: the click hit it → native "Use your security key with accounts.meta.com" dialog → keys lost, focus
+  back in the username field → Ctrl+A + password replaced the username. Page screenshots can't show browser UI.
+- Fix: `loginPlan` presses Escape after the username (closes the suggestion, as a person would). Probe with the fix:
+  seeds 2/4/6/7 (click and Tab paths) fill both fields, no dialog. Applies to the automatic login too.

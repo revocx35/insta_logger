@@ -21,7 +21,7 @@ function replay(steps: Step[]): string {
     }
     expect(down.has(s.keysym)).toBe(false); // a key never goes down twice without coming up
     down.add(s.keysym);
-    if ([KEY.shift, KEY.control, KEY.tab, KEY.enter].includes(s.keysym as never) || ctrl) continue;
+    if ([KEY.shift, KEY.control, KEY.tab, KEY.enter, KEY.escape].includes(s.keysym as never) || ctrl) continue;
     if (s.keysym === KEY.backspace) {
       out = out.slice(0, -1);
       continue;
@@ -150,6 +150,12 @@ describe('loginPlan', () => {
       const submitted = steps.some((s) => s.kind === 'key' && s.keysym === KEY.enter) ? 'enter' : 'click';
       const viaTab = steps.some((s) => s.kind === 'key' && s.keysym === KEY.tab) ? 'tab' : 'mouse';
       seen.add(`${submitted}/${viaTab}`);
+      // Escape (closing Chromium's passkey suggestion) comes after the username and before anything reaches the password.
+      const esc = steps.findIndex((s) => s.kind === 'key' && s.keysym === KEY.escape && s.down);
+      const toPassword = steps.findIndex((s, i) => i > esc && ((s.kind === 'key' && s.keysym === KEY.tab) || (s.kind === 'button' && s.down)));
+      expect(esc).toBeGreaterThan(0);
+      expect(replay(steps.slice(0, esc))).toBe('owner.account');
+      expect(toPassword).toBeGreaterThan(esc);
       const total = duration(steps);
       expect(total).toBeGreaterThan(3000);
       expect(total).toBeLessThan(20000);
@@ -162,5 +168,6 @@ describe('loginPlan', () => {
     const steps = loginPlan({ ...layout, username: null }, 'ignored', 'pw', seeded(9));
     expect(steps.filter((s) => s.kind === 'key' && s.keysym === 0x69 && s.down)).toHaveLength(0); // no "i" of "ignored"
     expect(steps.some((s) => s.kind === 'key' && s.keysym === KEY.tab)).toBe(false);
+    expect(steps.some((s) => s.kind === 'key' && s.keysym === KEY.escape)).toBe(false);
   });
 });
