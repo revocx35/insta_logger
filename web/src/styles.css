@@ -574,6 +574,22 @@ label.switch {
 .warn-text {
   color: var(--warn);
 }
+.session-sync .sync-side {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.session-sync h4 {
+  margin: 0 0 6px;
+  font-size: 0.95em;
+}
+.session-sync form input {
+  width: 100%;
+  max-width: 420px;
+}
+.session-sync .sync-code .recovery-box code {
+  word-break: break-all;
+}
 .session-import textarea {
   width: 100%;
   font-family: var(--mono, ui-monospace, monospace);

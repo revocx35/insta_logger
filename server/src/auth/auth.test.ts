@@ -333,7 +333,8 @@ describe('route authorization coverage', () => {
   it('rejects anonymous access to every non-public /api route', async () => {
     const h = await makeHarness();
     try {
-      const PUBLIC = new Set(['GET /api/state', 'HEAD /api/state', 'POST /api/auth/signup', 'POST /api/auth/login', 'POST /api/auth/recover', 'POST /api/auth/claim']);
+      // GET /api/sync/session authenticates with its own signature (sync/protocol.ts; tested in sync.test.ts).
+      const PUBLIC = new Set(['GET /api/state', 'HEAD /api/state', 'POST /api/auth/signup', 'POST /api/auth/login', 'POST /api/auth/recover', 'POST /api/auth/claim', 'GET /api/sync/session', 'HEAD /api/sync/session']);
       const routes = h.ctx.routeTable.filter((r) => r.url.startsWith('/api/'));
       expect(routes.length).toBeGreaterThan(10);
       for (const r of routes) {

@@ -231,6 +231,7 @@ server/src/
                       opens/reloads the login page with a one-command attach; decides when to attach (pure, tested)
     autologin.ts      automatic login with the saved Instagram password: sealed storage (own key file), restraint
                       policy (pure, tested), one attempt = read the form, play the human input plan over VNC
+    sidelogin.ts      separate login for session sync: throwaway browser context + window, fillForm, its cookies
     loginform.ts      where the login form (or the profile picker's button) is: one short DOM-only read
                       (getDocument/getContentQuads/hit test), detach
     humaninput.ts     human-like input plans (pure, seeded tests): Bézier mouse paths, Fitts timing, typing rhythm, typos
@@ -328,6 +329,39 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   Storage: `app_state.ig_autologin` = `{v, enabled, sealed}` with AES-256-GCM (AAD `igl/v1|app_state|ig_autologin`)
   under a random 32-byte key in `<DATA_DIR>/autologin.key` (0600, the worker's unix user); `ig_autologin_status` holds
   only times/results/failure count. Audit: `ig_autologin_saved/changed/deleted/run/attempt/result` (no values).
+* **Session sync** (`sync/`: `protocol.ts`, `home.ts`, `remote.ts`, `store.ts`; `ig/sidelogin.ts`; routes in
+  `api/sync.ts`; Instagram page panel in web and Android). For a second insta_logger with the **same account** that
+  can't log in itself (Instagram shows no login form to datacenter IPs, e.g. a VPS): the one that can (*home*) makes a
+  **separate** login and hands its session to the paired *remote* when the remote is logged out. Separate, not a copy
+  of the home's own cookies: one session used from two countries at once is what Instagram ends (both instances were
+  logged out within 3 minutes on 2026-11-02).
+  - *Pairing:* the home creates `igls1.<tenant>.<pairId>.<secret>` (32 random bytes; password + 2FA asked again;
+    shown once; a new code replaces the old pairing). The owner pastes it with the home's address on the remote.
+    Both sides keep it sealed in `app_state` under `<DATA_DIR>/sync.key` (0600), like the automatic login's password.
+  - *Request:* the remote's login watch, 15–30 s into a logout (or "Get session now"), generates a one-off X25519 key
+    and polls `GET <home>/api/sync/session` with `X-Session-Sync: v1.<pairId>.<ts>.<nonce>.<pub>.<mac>` (HMAC-SHA256
+    under HKDF(secret, "auth"); ±2 min; each nonce once) and the tenant cookie as a routing hint for the home's
+    gateway. A GET, so no Origin/CSRF; the signature is the authentication (`public` route, own rate limit, a
+    lockout after 20 bad signatures in 15 min). The secret itself never crosses the wire.
+  - *Separate login (home):* `Target.createBrowserContext` (throwaway, `disposeOnDetach`), the last separate login's
+    device cookies (`mid`, `ig_did`, `datr`) put back so Instagram sees a known device, a window on the login page
+    (`newWindow`, activated), then exactly the automatic login's typing (`AutoLogin.fillForm` under its lock: no
+    automatic login meanwhile). Poll that context's jar until `sessionid` + `ds_user_id`; a check page ends it
+    (`challenge`). Take the jar's Instagram cookies (`sessionCookies`, the paste flow's names and checks), dispose the
+    context — **no logout**, the session lives on for the remote. The window is in `loginwatch.sideTargets` and outside
+    the default context, so `pickTab`/`pickInstagramTab`/`closeOtherTabs` never take it for the Instagram tab.
+  - *Answer:* `202 {state: working}` while it runs, then `200 {state: done, box}` once: the cookies as JSON sealed with
+    AES-256-GCM under HKDF(X25519(home one-off, remote pub) ‖ HKDF(secret, "box")), AAD = pairId|pub. Only the paired
+    remote can open it and only the paired home can make it, so plain HTTP on the path (tunnel + LAN) reveals and
+    lets forge nothing. The remote validates the cookies like a paste and imports them (`importSession`).
+  - *Restraint:* home — one separate login per 15 min, a 6 h pause after 3 failed ones (or "Allow again"), nothing
+    while the owner used its screen in the last 2 min, needs the automatic login's saved password. Remote — settle,
+    cooldown ≥ 15 min after every outcome (or the home's `retryMs`), pause after 3 failures, nothing after a manual
+    logout or while the owner uses its screen. Remote HTTP: no redirects followed, 20 s timeout, answers ≤ 64 KB,
+    HTTPS certificates verified when the address is https.
+  - *Network (VPS):* the app container has no internet. The remote reaches the home through a relay the operator
+    adds (README "Session sync"): e.g. a socat container in the namespace of a VPN client container, joined to a
+    small internal network shared only with the app container.
 * **Logged in** = `sessionid` and `ds_user_id` cookies present for the Instagram origin (values never logged) and not on
   a login/challenge URL. The account: `CurrentUserInitialData.IG_USER_EIMU` (messaging id = sender id of own messages),
   `PolarisViewer.data` (Instagram id, username, name), `IGDMqttWebDeviceID.clientId` (needed by the inbox query);
@@ -413,6 +447,15 @@ worker must use it with nobody logged in).
 rather than CDP `Input.*`, no debugger on the page while typing, human timing, at most one attempt per logout and a
 pause after two failures, and checks/2FA always left to the owner. It cannot make a login undetectable; it makes it
 look like the owner typing on that machine.
+
+**Session sync** (threat model): the pairing secret lets its holder obtain Instagram sessions of the account, so it is
+created only with the password (+ 2FA) again, shown once, sealed at rest on both sides, never logged and never sent.
+An attacker on the path between remote and home (tunnel, LAN, plain HTTP) sees only signed requests that can't be
+replayed (nonce, ±2 min) and a box sealed for the remote's one-off key mixed with the secret: no session, nothing to
+forge or reuse. A stolen pairing code (or the remote's data directory with its `sync.key`) can obtain a session at most
+once per 15 min, each one shows in the home's audit (`sync_session_requested`/`_result`) and status — unpairing ends it.
+The home's own session is never handed out. Accepted: the separate logins are real logins of the account from the
+home's address (Instagram sees a login from a known device, then the session used from the remote's address).
 
 **Accepted / out of scope:** a fully compromised running host (it can read process memory and the live Instagram
 login), and Instagram's terms of use (automated browser; restriction risk is the user's decision).
@@ -598,6 +641,15 @@ Story usernames/names use AAD contexts `story_users|username|<id>` / `story_user
 | PUT | /api/ig/autologin | ✓ | `AutoLoginSave`: `{username, password}` together saves (resets the pause), `{enabled}` alone toggles; 10/15 min |
 | DELETE | /api/ig/autologin | ✓ | forget the saved login (state + key file) |
 | POST | /api/ig/autologin/run | ✓ | "Log in now" on the login page (ignores pause/cooldown/manual logout) → `AutoLoginRun`; 5/15 min |
+| GET | /api/sync/home | ✓ | `SyncHomeStatus` (paired, password saved, running, pause, last request/result; never the secret) |
+| POST | /api/sync/home/pair | ✓ | `{password, totp?}` → `SyncPairing` `{code}` (shown once, replaces the old pairing); 5/15 min |
+| POST | /api/sync/home/resume | ✓ | "Allow again" after the 6 h pause |
+| DELETE | /api/sync/home | ✓ | unpair (also forgets the kept device cookies) |
+| GET | /api/sync/session | signed | the paired remote only: `X-Session-Sync` signature (no session) → `SyncSessionAnswer` (202 working / 200 sealed box) or `{error: {code: sync_*}, retryMs?}`; 60/min |
+| GET | /api/sync/remote | ✓ | `SyncRemoteStatus` (address, enabled, paused, running, last try/result; never the code) |
+| PUT | /api/sync/remote | ✓ | `SyncRemoteSave`: `{url, code}` together saves, `{enabled}` alone toggles; 10/15 min |
+| DELETE | /api/sync/remote | ✓ | forget the home |
+| POST | /api/sync/remote/run | ✓ | "Get session now" while logged out → `SyncRemoteRun`; 5/15 min |
 | POST | /api/onboarding/complete | ✓ | requires state ready/syncing |
 | GET / WS | /api/vnc/credentials · /api/vnc | ✓ | noVNC password · bridge to chromium:5900 |
 | GET | /api/chats | ✓ | `ChatSummary[]` |
@@ -652,7 +704,7 @@ plain-http media links are accepted only from that origin). Per worker/user (set
   (and no anonymous access to it), creating a user, `/internal` unreachable from outside, and one unix user per process.
 * `chromium/manager` (Go, `CGO_ENABLED=0 go test ./...`, also run in the image build): token vectors shared with
   `supervisor/tokens.ts`, the route allowlist (version, tab list, browser WebSocket; nothing else), the VNC tunnel.
-* `scripts/dev/fake-e2e.mts` (72 checks; automatic login (right credentials, trusted input only, mouse samples and typing rhythm, manual logout respected, "Log in now"); story logging (off by default, check now, author avatar, no live videos, Range-served video, nothing twice, never seen), reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
+* `scripts/dev/fake-e2e.mts` (83 checks; session sync (pairing, signed request, separate login in a throwaway window with trusted input, sealed answer that is logged in, own tab untouched and attached, window gone, cooldown); automatic login (right credentials, trusted input only, mouse samples and typing rhythm, manual logout respected, "Log in now"); story logging (off by default, check now, author avatar, no live videos, Range-served video, nothing twice, never seen), reels feed, paging, video through the browser with Range, comments, like/unlike, commenting, replying, share as link): all three real images and real Chromium against `fake-instagram.mts` —
   login detection and re-login (nothing attached to the tab while logged out; logging in with a session pasted as
   "Copy as cURL", refused while logged in, never in the logs or DB), history import (3 chats, paging, history photo), live stream message, unsend kept,
   edit history, reaction, live photo downloaded through the browser, sending (text+reply, react/unreact, edit, unsend

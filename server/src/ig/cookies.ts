@@ -140,6 +140,17 @@ export function parseSessionCookies(input: string): SessionCookie[] {
   const text = input.trim();
   if (!text || text.length > SESSION_INPUT_MAX) throw invalid(NOTHING);
   const pairs = text.startsWith('[') ? fromJson(text) : /^curl(\.exe)?\s/i.test(text) ? fromCurl(text) : fromHeader(text.replace(/^cookie\s*:/i, ''));
+  return sessionCookies(pairs);
+}
+
+/** Device-id cookies: kept by the separate login for session sync so the next login comes from a known "device". */
+export const DEVICE_COOKIES = new Set(['mid', 'ig_did', 'datr']);
+
+/**
+ * Instagram's session cookies among [pairs] (only the known names, first of each), checked like a paste: a session and
+ * an account of one account. Also used for the cookies session sync brings (sync/remote.ts).
+ */
+export function sessionCookies(pairs: [string, string][]): SessionCookie[] {
   const found = new Map<string, string>();
   for (const [name, value] of pairs) {
     if (!NAMES.has(name) || found.has(name)) continue;

@@ -24,6 +24,7 @@ Read before changing anything: [ARCHITECTURE.md](ARCHITECTURE.md) (design, secur
 | `server/src/api/internal.ts` | Worker routes only the gateway may call (`/internal/*`) |
 | `server/src/app.ts`, `http/`, `auth/`, `crypto/`, `db/` | Fastify app, security hooks, login/2FA/sessions/claim, envelope encryption, SQLite (append-only migrations) |
 | `server/src/ig/` | Instagram integration: `service.ts` (lifecycle, checks, timers, session refresh), `chromium.ts` (this tenant's browser through the manager), `loginwatch.ts` (hands-off while logged out), `page.ts` (CDP session: stream, GraphQL, REST, downloads), `dgw.ts` (stream decoder), `mapper.ts`/`ingest.ts` (messages → DB), `sync.ts` (history, reconcile), `sender.ts`, `media.ts`, `docs.ts` (GraphQL doc ids), `cookies.ts` (pasted sessions), `stories.ts` (story logging), `autologin.ts` + `loginform.ts` + `humaninput.ts` (automatic login with the saved password) |
+| `server/src/sync/` | Session sync: `protocol.ts` (pairing code, signed requests, sealed answer), `home.ts` (giving side: separate login per request, restraint), `remote.ts` (receiving side: asks when logged out, imports), `store.ts` (sealed app_state under `sync.key`); routes `api/sync.ts`; the separate login is `ig/sidelogin.ts` |
 | `server/src/vnc/` | `bridge.ts` (owner's VNC WebSocket ↔ x11vnc; records owner input time), `rfb.ts` + `des.ts` (the app's own input-only VNC client) |
 | `server/src/igweb/` | Reels: `client.ts` (feed, likes, comments), `mapper.ts`, `media.ts` (opaque media refs) |
 | `server/src/api/` | Routes: chats, media, send, admin (`/api/ig/*`), reels, stories, settings, audit, SSE |
@@ -35,11 +36,11 @@ Read before changing anything: [ARCHITECTURE.md](ARCHITECTURE.md) (design, secur
 ## Commands
 
 ```bash
-cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck   # 230 tests
+cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck   # 243 tests
 cd web && npm ci && npm test && npm run build                                        # strict-CSP build
 cd chromium/manager && CGO_ENABLED=0 go test ./...                                    # Go manager (also run in the image build)
 scripts/smoke.sh                     # whole stack from source, real instagram.com login page + multi-user checks
-cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]   # real stack vs fake Instagram (72 checks; Docker, ports 29443/29080/18555)
+cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]   # real stack vs fake Instagram (83 checks; Docker, ports 29443/29080/18555)
 # Against a running stack: unix users, one browser per user, ports, claim/reset/wipe (see the header of the script)
 cd server && BASE=http://127.0.0.1:8080 EXTRA_PORT=8101 PROJECT=iglmulti npx tsx ../scripts/dev/multiuser-e2e.mts
 ```
@@ -88,6 +89,9 @@ publishes `ghcr.io/revocx35/insta_logger-{app,chromium,caddy}` on `main`. Deploy
 - Attach CDP to the tab while it is logged out or on a login/challenge page (`loginwatch.ts` explains why). The only
   exceptions: the watch's single `Page.navigate`/`Page.reload`, and `loginform.ts`'s read-only DOM look before an
   automatic login. Never `Runtime.*`, `*.enable`, `Input.*` or script evaluation there; input goes through VNC.
+- Hand out the profile's own Instagram session through session sync, log/return a pairing code or secret after
+  creating it, send the secret over the wire, or loosen sync's restraint (15 min gap, pauses, owner-input check). The
+  remote's `GET /api/sync/session` stays a signed GET (no cookie auth, no Origin special case in the gateway).
 - Log, return or echo the saved Instagram password (or username) of the automatic login; store it anywhere but the
   sealed `app_state.ig_autologin`; or make the automatic login retry more eagerly (cooldown, failure pause, manual-logout
   suppression and owner-input check protect the account).
@@ -124,6 +128,12 @@ publishes `ghcr.io/revocx35/insta_logger-{app,chromium,caddy}` on `main`. Deploy
   profile") instead of the form. `loginform.ts` reports its button; the attempt clicks "Continue" when the picker shows
   the saved username, otherwise "Use another profile", then looks again for the form (up to 4 looks). Without this
   every attempt ended `no_form`. Keep the button labels (`CONTINUE`/`OTHER_PROFILE`) in English and Turkish.
+- Session sync's separate login runs in a **second browser context** of the same Chromium (own window on the same
+  screen). Puppeteer's `browser.pages()` and `/json/list` include it: tab choice uses the default context only
+  (`ig/browser.ts mainPages`) and `pickTab` skips `loginwatch.sideTargets`. Keep it that way, or the app attaches to
+  (or closes) the throwaway window.
+- The gateway strips client `X-IGL-*` headers, so sync's request header is `X-Session-Sync`. The remote sends the tenant
+  cookie (both `igl_tenant` and `__Host-igl_tenant`) only as the routing hint the gateway needs.
 - The automatic login maps CSS pixels 1:1 to the VNC screen: Chromium runs in kiosk mode at (0,0) with
   `--force-device-scale-factor=1`. Changing the window flags breaks the click positions.
 - x11vnc runs with `-pointer_mode 1 -nonap -sb 0` (chromium/manager/instance.go): without them, input after idle time

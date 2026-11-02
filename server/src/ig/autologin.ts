@@ -7,7 +7,7 @@ import { RfbInput } from '../vnc/rfb.js';
 import type { ChromiumLink, CdpTarget } from './chromium.js';
 import { clickPlan, loginPlan, uniform, type Rng, type Step } from './humaninput.js';
 import { readLoginForm } from './loginform.js';
-import type { TabLook } from './loginwatch.js';
+import type { TabInfo, TabLook } from './loginwatch.js';
 
 /*
  * Automatic login with a saved Instagram password: when Instagram ends the session and the tab lands on its login page,
@@ -332,53 +332,90 @@ export class AutoLogin {
     this.persisted.lastAttemptAt = Date.now();
     this.saveStatus();
     this.ctx.repo.audit('ig_autologin_attempt', null);
-    let rfb: RfbInput | null = null;
     try {
-      let form = await this.readForm(target, look.tab, creds.username);
-      if (form.ok === false) {
-        this.finish(form.reason === 'covered' ? 'covered' : 'no_form');
-        return;
-      }
-      this.typing = true;
-      this.deps.report();
-      // A short look at the page before reaching for the mouse.
-      await this.sleep(uniform(this.rng, 600, 2200), abort.signal);
-      const started = Date.now();
-      if (!manual && this.ctx.ownerInputAt > started - OWNER_QUIET_MS) {
-        this.finish('busy');
-        return;
-      }
-      rfb = await RfbInput.connect(await this.deps.chromium.openVncTunnel(), await this.deps.chromium.vncPassword());
-      if (form.ok === 'picker') {
-        // Instagram's profile picker: "Continue" (the saved account) or "Use another profile", then the form.
-        const own = form.own;
-        await this.play(rfb, clickPlan(form.screen, form.button, this.rng), abort.signal, started);
-        for (let i = 0; i < PICKER_LOOKS; i++) {
-          await this.sleep(uniform(this.rng, 1800, 3200), abort.signal);
-          form = await this.readForm(target, look.tab, creds.username);
-          if (form.ok === true) break;
-        }
-        if (form.ok !== true) {
-          // "Continue" may log straight in; otherwise the verdict counts it as failed.
-          if (own) return this.awaitVerdict();
-          this.finish(form.ok === false && form.reason === 'covered' ? 'covered' : 'no_form');
-          return;
-        }
-        await this.sleep(uniform(this.rng, 400, 1400), abort.signal);
-      }
-      const plan = loginPlan(form.layout, creds.username, creds.password, this.rng);
-      await this.play(rfb, plan, abort.signal, started);
-      this.awaitVerdict();
+      const r = await this.fillForm(target, look.tab, creds, abort.signal, { manual, onTyping: () => this.deps.report() });
+      if (r === 'typed' || r === 'maybe_in') this.awaitVerdict();
+      else this.finish(r);
     } catch (err) {
       const aborted = abort.signal.aborted || (err as Error).message === 'aborted';
       this.finish(aborted ? 'busy' : 'error');
       if (!aborted) this.ctx.log.warn({ err: (err as Error).message }, 'automatic Instagram login failed');
     } finally {
-      rfb?.close();
       this.busy = false;
       this.typing = false;
       this.deps.report();
       if (this.abort === abort) this.abort = null;
+    }
+  }
+
+  /**
+   * Runs [fn] while holding the login lock (no automatic login meanwhile): the separate login for session sync
+   * (ig/sidelogin.ts) uses the same screen and keyboard. Null when an attempt is already running.
+   */
+  async exclusive<T>(fn: (signal: AbortSignal, creds: { username: string; password: string }) => Promise<T>): Promise<T | 'busy' | 'not_saved'> {
+    const creds = this.credentials();
+    if (!creds) return 'not_saved';
+    if (this.busy || this.verdict) return 'busy';
+    this.busy = true;
+    const abort = new AbortController();
+    this.abort = abort;
+    try {
+      return await fn(abort.signal, creds);
+    } finally {
+      this.busy = false;
+      this.typing = false;
+      if (this.abort === abort) this.abort = null;
+    }
+  }
+
+  /**
+   * Fills the login form of [tab] with [creds] over VNC and submits it: reads the form (clicking through Instagram's
+   * profile picker first), then plays the human input plan. 'typed': submitted; 'maybe_in': the picker's "Continue"
+   * was clicked and no form followed (it may have logged in straight away). Throws 'aborted' when the owner's input
+   * stopped it.
+   */
+  async fillForm(
+    target: CdpTarget,
+    tab: TabInfo,
+    creds: { username: string; password: string },
+    signal: AbortSignal,
+    opts: { manual?: boolean; onTyping?: () => void } = {},
+  ): Promise<'typed' | 'maybe_in' | 'no_form' | 'covered' | 'busy'> {
+    let rfb: RfbInput | null = null;
+    try {
+      let form = await this.readForm(target, tab, creds.username);
+      if (form.ok === false) return form.reason === 'covered' ? 'covered' : 'no_form';
+      this.typing = true;
+      opts.onTyping?.();
+      // A short look at the page before reaching for the mouse.
+      await this.sleep(uniform(this.rng, 600, 2200), signal);
+      const started = Date.now();
+      if (!opts.manual && this.ctx.ownerInputAt > started - OWNER_QUIET_MS) return 'busy';
+      rfb = await RfbInput.connect(await this.deps.chromium.openVncTunnel(), await this.deps.chromium.vncPassword());
+      if (form.ok === 'picker') {
+        // Instagram's profile picker: "Continue" (the saved account) or "Use another profile", then the form.
+        const own = form.own;
+        await this.play(rfb, clickPlan(form.screen, form.button, this.rng), signal, started);
+        for (let i = 0; i < PICKER_LOOKS; i++) {
+          await this.sleep(uniform(this.rng, 1800, 3200), signal);
+          form = await this.readForm(target, tab, creds.username);
+          if (form.ok === true) break;
+        }
+        if (form.ok !== true) {
+          // "Continue" may log straight in; otherwise the verdict counts it as failed.
+          if (own) return 'maybe_in';
+          return form.ok === false && form.reason === 'covered' ? 'covered' : 'no_form';
+        }
+        await this.sleep(uniform(this.rng, 400, 1400), signal);
+      }
+      const plan = loginPlan(form.layout, creds.username, creds.password, this.rng);
+      await this.play(rfb, plan, signal, started);
+      return 'typed';
+    } catch (err) {
+      if (signal.aborted) throw new Error('aborted');
+      throw err;
+    } finally {
+      rfb?.close();
     }
   }
 

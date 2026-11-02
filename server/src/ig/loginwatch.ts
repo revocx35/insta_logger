@@ -41,8 +41,12 @@ export async function listTabs(target: CdpTarget): Promise<TabInfo[]> {
     .map((t) => ({ id: t.id as string, url: t.url as string }));
 }
 
+/** Targets of a running separate login (ig/sidelogin.ts): another context's window, never "the" tab. */
+export const sideTargets = new Set<string>();
+
 /** The tab insta_logger uses: an Instagram tab, else a blank one, else the first (as pickInstagramTab). */
-export function pickTab(tabs: TabInfo[], origin: string): TabInfo | null {
+export function pickTab(all: TabInfo[], origin: string): TabInfo | null {
+  const tabs = all.filter((t) => !sideTargets.has(t.id));
   return tabs.find((t) => t.url.startsWith(origin)) ?? tabs.find((t) => classifyUrl(t.url, origin) === 'blank') ?? tabs[0] ?? null;
 }
 

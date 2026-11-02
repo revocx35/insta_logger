@@ -22,6 +22,9 @@ Read these first, every session:
 - The saved Instagram password (`ig/autologin.ts`) is a credential: write-only in the API, sealed in
   `app_state.ig_autologin` under `<DATA_DIR>/autologin.key`, never logged or echoed. Keep its restraint rules.
 - Keep the browser looking normal: WebGL (Mesa llvmpipe), the server's time zone (`TZ`), no automation flags.
+- Session sync (`sync/`, `ig/sidelogin.ts`): only ever hand out a SEPARATE login made in a throwaway browser context,
+  never the profile's own session. The pairing secret is a credential: shown once, sealed (`sync.key`), never logged
+  or sent; requests stay signed GETs, answers sealed. Keep its restraint (15 min gap, pauses, owner-input check).
 - A session pasted by the owner (`POST /api/ig/session`, `ig/cookies.ts`) is a credential: never log it, never echo a
   value in an error, never store it outside the Chromium profile.
 - GraphQL requests run inside the Instagram tab (`IgPage.graphql`); tokens stay in the page. Doc ids come from
@@ -40,12 +43,12 @@ Read these first, every session:
 - Commits end with the Co-Authored-By trailer. CI must stay green: it publishes the GHCR images on `main`.
 
 ## Commands
-- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 230 tests).
+- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 243 tests).
 - Chromium manager: `cd chromium/manager && CGO_ENABLED=0 go test ./...`.
 - Web: `cd web && npm test && npm run build`.
 - Full stack from source: `scripts/smoke.sh` (incl. multi-user checks). Standalone layout: `scripts/smoke.sh --deploy`.
 - Multi-user against a running stack: `scripts/dev/multiuser-e2e.mts` (see its header).
-- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (72 checks).
+- Fake Instagram end to end: `cd server && npx tsx ../scripts/dev/fake-e2e.mts [--keep]` (83 checks).
 - UI screenshots: `scripts/dev/README.md` (`ui-shots.mts`). Sample data: `server/src/testutil/seed.ts`.
 
 ## Gotchas learned the hard way

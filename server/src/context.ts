@@ -1,7 +1,9 @@
 import type { AutoLoginRun, AutoLoginSave, AutoLoginStatus, IgStatus, SendMediaKind, SendResult, StoryStatus } from '../../shared/api.js';
 import type { Config } from './config.js';
 import type { SessionCookie } from './ig/cookies.js';
+import type { TabLook } from './ig/loginwatch.js';
 import type { Downloader } from './ig/media.js';
+import type { SideLoginResult } from './ig/sidelogin.js';
 import { Errors } from './errors.js';
 import { DataWriter } from './crypto/keyring.js';
 import type { Repo } from './db/repo.js';
@@ -44,6 +46,10 @@ export interface IgController {
   logout(): Promise<void>;
   /** Logs in with a session (cookies) from the owner's own browser, instead of the login form. */
   importSession(cookies: SessionCookie[]): Promise<void>;
+  /** A separate login in a throwaway browser context for session sync (ig/sidelogin.ts). */
+  separateLogin(device: SessionCookie[]): Promise<SideLoginResult>;
+  /** Where the tab is while logged out (null while logged in or not watching): for "Get session now". */
+  loggedOutLook(): Promise<TabLook | null>;
   /** Automatic login with a saved Instagram password (ig/autologin.ts). */
   autoLoginStatus(): AutoLoginStatus;
   saveAutoLogin(input: AutoLoginSave): void;
@@ -62,6 +68,16 @@ export interface IgController {
   readonly sender: IgSender;
 }
 
+/** What the Instagram controller's login watch tells session sync (sync/remote.ts). */
+export interface SyncHooks {
+  consider(look: TabLook): void;
+  suppress(): void;
+  onLoggedIn(): void;
+  note(): string | null;
+}
+
+const NO_SYNC: SyncHooks = { consider: () => undefined, suppress: () => undefined, onLoggedIn: () => undefined, note: () => null };
+
 export class AppContext {
   private writerInstance: DataWriter | null = null;
   ig: IgController;
@@ -71,6 +87,8 @@ export class AppContext {
   readonly throttle: Throttle;
   /** When the owner last moved the mouse or typed in the VNC viewer (the automatic login keeps its hands off then). */
   ownerInputAt = 0;
+  /** Session sync (sync/): set by createApp; the login watch tells it about logouts. */
+  sync: SyncHooks = NO_SYNC;
 
   constructor(
     readonly config: Config,
@@ -134,6 +152,12 @@ export class NullIg implements IgController {
   }
   async importSession(_cookies: SessionCookie[]): Promise<void> {
     throw Errors.unavailable('Instagram is not enabled.');
+  }
+  async separateLogin(_device: SessionCookie[]): Promise<SideLoginResult> {
+    return { ok: false, reason: 'error' };
+  }
+  async loggedOutLook(): Promise<TabLook | null> {
+    return null;
   }
   autoLoginStatus(): AutoLoginStatus {
     return { saved: false, username: null, enabled: false, paused: false, running: false, lastAttemptAt: null, lastResult: null };

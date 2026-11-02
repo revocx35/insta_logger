@@ -3,6 +3,7 @@ import type { AutoLoginRun, AutoLoginSave, AutoLoginStatus, IgState, IgStatus } 
 import type { AppContext, IgController, IgWebSource } from '../context.js';
 import { IgClient } from './api.js';
 import { AutoLogin } from './autologin.js';
+import { separateLogin, type SideLoginResult } from './sidelogin.js';
 import { refreshAvatars } from './avatars.js';
 import { classifyUrl, closeOtherTabs, pickInstagramTab, type PageKind } from './browser.js';
 import { ChromiumLink, type CdpTarget } from './chromium.js';
@@ -145,6 +146,19 @@ export class IgService implements IgController {
 
   removeAutoLogin(): void {
     this.autoLogin.remove();
+  }
+
+  /** A separate login for session sync (ig/sidelogin.ts); needs the browser, not Instagram logged in. */
+  async separateLogin(device: SessionCookie[]): Promise<SideLoginResult> {
+    if (!this.ctx.config.igEnabled) return { ok: false, reason: 'error' };
+    await this.chromium.ensure();
+    if (!(await this.chromium.reachable())) return { ok: false, reason: 'error' };
+    return separateLogin({ target: this.chromium.cdpTarget(), origin: this.ctx.config.igWebOrigin, autoLogin: this.autoLogin, device });
+  }
+
+  async loggedOutLook(): Promise<TabLook | null> {
+    if (!this.watchTimer) return null;
+    return lookAtTab(this.chromium.cdpTarget(), this.ctx.config.igWebOrigin);
   }
 
   async autoLoginNow(): Promise<AutoLoginRun['result']> {
@@ -331,6 +345,7 @@ export class IgService implements IgController {
 
   async logout(): Promise<void> {
     this.autoLogin.suppress();
+    this.ctx.sync.suppress();
     const tab = this.tab;
     if (!tab) throw new Error('not connected');
     const page = tab.page;
@@ -550,7 +565,7 @@ export class IgService implements IgController {
 
   private setLoginState(kind: PageKind): void {
     if (kind === 'challenge') this.setState('challenge', CHALLENGE_TEXT);
-    else this.setState('login', this.autoLogin.note() ?? LOGIN_TEXT);
+    else this.setState('login', this.autoLogin.note() ?? this.ctx.sync.note() ?? LOGIN_TEXT);
   }
 
   /* ------------------------------------------------- logged out */
@@ -578,13 +593,17 @@ export class IgService implements IgController {
       const next = nextLoginStep(look, { fresh: reload, strayPolls: stray });
       if (next === 'attach') {
         this.autoLogin.onLoggedIn();
+        this.ctx.sync.onLoggedIn();
         this.stopWatch();
         void this.connect(false);
         return;
       }
       this.setLoginState(look.kind);
       if (look.kind === 'challenge') this.autoLogin.onChallenge();
-      if (next === 'wait') this.autoLogin.consider(target, look);
+      if (next === 'wait') {
+        this.autoLogin.consider(target, look);
+        this.ctx.sync.consider(look);
+      }
       stray = next === 'wait' && look.kind !== 'login' && look.kind !== 'challenge' ? stray + 1 : 0;
       if (next === 'open_login') await steerTab(target, look.tab, { goto: `${origin}/accounts/login/` });
       else if (next === 'reload') await steerTab(target, look.tab, { reload: true });
@@ -637,6 +656,7 @@ export class IgService implements IgController {
     }
     this.ctx.repo.audit('ig_ready', null);
     this.autoLogin.onLoggedIn();
+    this.ctx.sync.onLoggedIn();
     const early = this.early;
     this.early = [];
     this.applyDeltas(early);

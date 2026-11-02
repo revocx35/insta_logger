@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { registerAdminRoutes } from './api/admin.js';
+import { registerSyncRoutes } from './api/sync.js';
+import { SessionSync } from './sync/index.js';
 import { registerChatRoutes } from './api/chats.js';
 import { registerEventRoutes } from './api/events.js';
 import { registerInternalRoutes } from './api/internal.js';
@@ -34,6 +36,13 @@ export async function createApp(
   const repo = new Repo(db);
   const ctx = new AppContext(config, log, repo, new EventBus(), new SettingsStore(repo, config.defaults));
   if (opts.ig) ctx.ig = opts.ig(ctx);
+  const sync = new SessionSync(ctx);
+  ctx.sync = {
+    consider: (look) => sync.remote.consider(look),
+    suppress: () => sync.remote.suppress(),
+    onLoggedIn: () => sync.remote.onLoggedIn(),
+    note: () => sync.remote.note(),
+  };
   const app = await buildServer(ctx);
   registerStateRoutes(app, ctx);
   const auth = registerAuthRoutes(app, ctx);
@@ -45,6 +54,7 @@ export async function createApp(
   registerSendRoutes(app, ctx);
   registerEventRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
+  registerSyncRoutes(app, ctx, sync);
   registerVncRoutes(app, ctx);
   opts.routes?.(app, ctx);
   app.addHook('onClose', async () => {

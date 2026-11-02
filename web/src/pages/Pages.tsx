@@ -6,6 +6,7 @@ import { useServerEvents } from '../api/events';
 import { Icon } from '../components/Icon';
 import { MessageBubble } from '../components/MessageBubble';
 import { AutoLoginPanel } from '../components/AutoLogin';
+import { SessionSyncPanel } from '../components/SessionSync';
 import { SessionImport } from '../components/SessionImport';
 import { VncViewer } from '../components/VncViewer';
 import { Avatar, ConfirmButton, EmptyState, ErrorNote, IgStatePill, Spinner } from '../components/ui';
@@ -241,6 +242,7 @@ export function InstagramPage() {
         </div>
       ) : null}
       <AutoLoginPanel igState={ig?.state} />
+      <SessionSyncPanel igState={ig?.state} />
       {needsLogin ? <SessionImport /> : null}
       <ErrorNote error={error} />
       <VncViewer viewOnly={viewOnly} className="ig-web-vnc" />

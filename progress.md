@@ -34,6 +34,11 @@
 ## Done (2026-11-02, automatic login fix)
 - [x] Instagram's profile picker ("Continue" / "Use another profile") after a logout: clicked through, then the form
 
+## Done (2026-11-02, session sync)
+- [x] Home ↔ remote session sync: pairing code (password again, shown once), signed requests, sealed answers, separate
+      login in a throwaway browser context (fullscreened window, VNC typing), restraint on both sides; web + Android
+      panel (0.9.0); unit + fake-e2e tests; README "Session sync over a VPN"
+
 ## Open
 - [ ] First run with the owner's real Instagram account (docs/instagram-notes.md "First live check")
 - [ ] Message requests folder in the history import (only INBOX is paged today; requests arrive live)

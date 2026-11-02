@@ -16,6 +16,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ALI, CHAT, GROUP, ME, OTHER, at, delta, imageMsg, mid, textMsg } from '../../server/src/testutil/igfixtures.ts';
+import { generateX25519 } from '../../server/src/crypto/primitives.ts';
+import { HEADER as SYNC_HEADER, openFromHome, parsePairingCode, signRequest } from '../../server/src/sync/protocol.ts';
 
 const ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
 const KEEP = process.argv.includes('--keep');
@@ -53,6 +55,9 @@ let cookie = '';
 const jar = new Map<string, string>();
 /** The session pasted in the "log in with your own browser" check: must never reach the logs or the DB. */
 let pastedSession = 'not-set';
+/** Session sync: the pairing secret and the session handed over — must not reach the logs or the DB either. */
+let syncSecret = 'not-set';
+let syncSession = 'not-set';
 let csrf = '';
 async function api(method: string, url: string, body?: unknown, raw?: { data: Buffer; type: string; name: string }): Promise<{ status: number; json: any; buf: Buffer }> {
   const headers: Record<string, string> = { origin: ORIGIN };
@@ -128,6 +133,29 @@ function tabAttached(): boolean | null {
   })().catch(() => { console.log('null'); process.exit(0); });`;
   try {
     return JSON.parse(dc('exec', '-T', 'app', 'node', '-e', js).trim()) as boolean | null;
+  } catch {
+    return null;
+  }
+}
+
+/** How many page targets show the (fake) Instagram, in any browser context. */
+function pageCount(): number | null {
+  const env = fs.readFileSync(envFile, 'utf8');
+  const secret = /^CONTROL_SECRET=(.*)$/m.exec(env)?.[1] ?? /^VNC_PASSWORD=(.*)$/m.exec(env)?.[1] ?? '';
+  const token = crypto.createHmac('sha256', secret).update('igl/chromium/instance/1').digest('hex');
+  const js = `const WebSocket = require('/app/node_modules/ws');
+  const h = { authorization: 'Bearer ${token}' };
+  (async () => {
+    const v = await (await fetch('http://chromium:9223/i/1/cdp/json/version', { headers: h })).json();
+    const ws = new WebSocket('ws://chromium:9223/i/1/cdp' + new URL(v.webSocketDebuggerUrl).pathname, { headers: h });
+    ws.on('open', () => ws.send(JSON.stringify({ id: 1, method: 'Target.getTargets' })));
+    ws.on('message', (m) => {
+      console.log(JSON.stringify(JSON.parse(String(m)).result.targetInfos.filter((t) => t.type === 'page' && t.url.startsWith('http://fakeig')).length));
+      process.exit(0);
+    });
+  })().catch(() => { console.log('null'); process.exit(0); });`;
+  try {
+    return JSON.parse(dc('exec', '-T', 'app', 'node', '-e', js).trim()) as number | null;
   } catch {
     return null;
   }
@@ -392,7 +420,8 @@ async function main() {
   const gaps: number[] = form?.detail?.gaps ?? [];
   const mean = gaps.reduce((x, y) => x + y, 0) / Math.max(1, gaps.length);
   const sd = Math.sqrt(gaps.reduce((x, y) => x + (y - mean) ** 2, 0) / Math.max(1, gaps.length));
-  check(form?.detail?.moves > 30 && form?.detail?.clicks >= 1, `the mouse moved there like a hand (${form?.detail?.moves} mousemove events, ${form?.detail?.raw} pointer samples, ${form?.detail?.clicks} clicks)`);
+  // A plan has 12–85 mouse moves (5th percentile 25); the x11vnc nap bug delivered only 6–15 merged events.
+  check(form?.detail?.moves >= 16 && form?.detail?.raw <= form?.detail?.moves + 2 && form?.detail?.clicks >= 1, `the mouse moved there like a hand (${form?.detail?.moves} mousemove events, ${form?.detail?.raw} pointer samples, ${form?.detail?.clicks} clicks)`);
   check(gaps.length > 15 && mean > 60 && sd / mean > 0.2, `typing rhythm is human (mean ${Math.round(mean)} ms, sd ${Math.round(sd)} ms)`);
   check((await api('GET', '/api/ig/autologin')).json?.lastResult === 'logged_in', 'automatic login reports success');
   // A manual logout is respected: no automatic login afterwards.
@@ -406,14 +435,59 @@ async function main() {
   check(run.json?.result === 'started', `"Log in now" starts it anyway (${run.json?.result})`);
   check(!!(await until('ready after "Log in now"', async () => ((await api('GET', '/api/ig/status')).json?.state === 'ready' ? true : null), 90_000)), 'ready after "Log in now"');
 
+  // Session sync, giving side: a paired remote asks; the home makes a SEPARATE login in a throwaway browser context
+  // (own window, same VNC typing) and hands that session over sealed, while its own tab stays logged in and attached.
+  const pairRes = await api('POST', '/api/sync/home/pair', { password: 'correct-horse-battery-staple' });
+  check(pairRes.status === 200 && typeof pairRes.json?.code === 'string', 'session sync: pairing code created (password asked again)');
+  const pairing = parsePairingCode(pairRes.json?.code ?? '')!;
+  syncSecret = pairing ? pairing.secret.toString('base64url') : 'not-set';
+  const remoteKey = generateX25519();
+  const askHome = async () => {
+    const r = await fetch(`${BASE}/api/sync/session`, {
+      headers: { [SYNC_HEADER]: signRequest(pairing, remoteKey.publicRaw), cookie: `__Host-igl_tenant=${pairing.tenant}; igl_tenant=${pairing.tenant}` },
+      redirect: 'manual',
+    });
+    return { status: r.status, json: (await r.json().catch(() => null)) as any };
+  };
+  const unsigned = await fetch(`${BASE}/api/sync/session`, { headers: { cookie: `__Host-igl_tenant=1` } });
+  check(unsigned.status === 401, `session sync: unsigned request refused (${unsigned.status})`);
+  const formsBefore = (await fakeLog()).log.filter((e) => e.kind === 'login_form').length;
+  const first = await askHome();
+  check(first.status === 202 && first.json?.state === 'working', `session sync: the home starts a separate login (${first.status})`);
+  const given = await until('session sync answer', async () => {
+    const r = await askHome();
+    if (r.status === 200) return r.json;
+    if (r.status !== 202) throw new Error(`refused: ${r.status} ${JSON.stringify(r.json)}`);
+    return null;
+  }, 180_000);
+  let givenSession = '';
+  if (given) {
+    const opened = JSON.parse(openFromHome(pairing, remoteKey, given.box).toString('utf8')) as { cookies: { name: string; value: string }[] };
+    givenSession = opened.cookies.find((c) => c.name === 'sessionid')?.value ?? '';
+    check(!!givenSession && opened.cookies.some((c) => c.name === 'ds_user_id'), 'session sync: the sealed answer opens and holds a session');
+    const header = opened.cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    const probe = await fetch(`${FAKE}/direct/inbox/`, { headers: { cookie: header }, redirect: 'manual' });
+    check(probe.status === 200, `session sync: the given session is logged in at Instagram (${probe.status})`);
+  }
+  const sideForm = (await fakeLog()).log.filter((e) => e.kind === 'login_form');
+  check(sideForm.length === formsBefore + 1 && sideForm.at(-1)?.ok === true && sideForm.at(-1)?.detail?.untrusted === 0, 'session sync: the separate login typed the right password with trusted input');
+  check((await api('GET', '/api/ig/status')).json?.state === 'ready', "session sync: the home's own Instagram stayed logged in");
+  check(tabAttached() === true, "session sync: the home's own tab is still the attached one");
+  check(pageCount() === 1, `session sync: the throwaway window is gone (${pageCount()} Instagram tabs)`);
+  const again = await askHome();
+  check(again.status === 429 && again.json?.error?.code === 'sync_cooldown', `session sync: asked again at once → cooldown (${again.status})`);
+  const homeSt = (await api('GET', '/api/sync/home')).json;
+  check(homeSt?.lastGivenAt > 0 && homeSt?.lastResult === 'cooldown', `session sync: the home reports the session given, then the early request (${homeSt?.lastResult})`);
+  syncSession = givenSession || 'not-set';
+
   // No plaintext in the data volume.
   const dump = execFileSync('docker', ['compose', '--env-file', envFile, '-p', PROJECT, '-f', path.join(ROOT, 'docker-compose.yml'), '-f', path.join(work, 'override.yml'), 'exec', '-T', '-u', '10001', 'app', 'sh', '-c', 'cat /data/*.db* | base64 -w0'], { encoding: 'utf8', maxBuffer: 1 << 28 });
   const db = Buffer.from(dump, 'base64');
-  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig', 'story.teller', 'Story Teller', pastedSession, IG_PW, 'owner.account'].filter((s) => db.includes(Buffer.from(s)));
+  const leaks = ['a secret I will unsend', 'meet at 8', 'Ali Veli', 'ali.veli', 'Weekend plans', 'hello from insta_logger', 'fakeig', 'story.teller', 'Story Teller', pastedSession, IG_PW, 'owner.account', syncSecret, syncSession].filter((s) => db.includes(Buffer.from(s)));
   check(leaks.length === 0, `no plaintext content, names or links in the database files${leaks.length ? ` (found: ${leaks.join(', ')})` : ''}`);
 
   const logs = dc('logs', '--no-color', 'app');
-  const logLeaks = ['a secret', 'meet at', 'Ali Veli', 'DTSG_TOKEN', 'CSRF_TOKEN', pastedSession, IG_PW].filter((s) => logs.includes(s));
+  const logLeaks = ['a secret', 'meet at', 'Ali Veli', 'DTSG_TOKEN', 'CSRF_TOKEN', pastedSession, IG_PW, syncSecret, syncSession].filter((s) => logs.includes(s));
   check(logLeaks.length === 0, `no content or tokens in the app logs${logLeaks.length ? ` (found: ${logLeaks.join(', ')})` : ''}`);
   void ME;
   void at;

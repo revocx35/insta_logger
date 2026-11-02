@@ -16,13 +16,18 @@ export function classifyUrl(url: string, origin: string): PageKind {
   return 'other';
 }
 
+/** Tabs of the profile itself: a separate login for session sync (ig/sidelogin.ts) runs in its own context, left alone. */
+async function mainPages(browser: Browser): Promise<Page[]> {
+  return browser.defaultBrowserContext().pages();
+}
+
 /**
  * Uses one tab for Instagram: an existing Instagram tab when there is one (the session lives in the profile anyway),
  * else a blank one. Extra Instagram tabs are closed (two tabs would both answer the message stream, and a second
  * open thread would send "seen" receipts).
  */
 export async function pickInstagramTab(browser: Browser, origin: string): Promise<Page> {
-  const pages = await browser.pages();
+  const pages = await mainPages(browser);
   const ig = pages.filter((p) => p.url().startsWith(origin));
   let keep: Page | undefined = ig[0] ?? pages.find((p) => classifyUrl(p.url(), origin) === 'blank');
   if (!keep) keep = await browser.newPage();
@@ -32,6 +37,6 @@ export async function pickInstagramTab(browser: Browser, origin: string): Promis
 
 /** Closes every other tab except [keep] (keeps the VNC screen on Instagram). */
 export async function closeOtherTabs(browser: Browser, keep: Page): Promise<void> {
-  for (const p of await browser.pages()) if (p !== keep) await p.close({ runBeforeUnload: false }).catch(() => undefined);
+  for (const p of await mainPages(browser)) if (p !== keep) await p.close({ runBeforeUnload: false }).catch(() => undefined);
   await keep.bringToFront().catch(() => undefined);
 }

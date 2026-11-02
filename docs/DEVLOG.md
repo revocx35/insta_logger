@@ -157,3 +157,22 @@ than reinvented:
   "Continue" that logs in without a password is settled by the normal verdict.
 - Tests: 230 server (3 new: picker detection on the live page's shape, picker → password, picker → straight in /
   nowhere). No API/UI change, so web and Android are unchanged.
+
+## 2026-11-02 — session sync (home gives separate sessions to a VPS)
+
+- Owner: the VPS insta_logger (same account) can't log in — Instagram shows datacenter IPs no login form — so they
+  paste cookies by hand; wanted the homelab to send cookies to the VPS through the VPN tunnel the ip-visualiser agent
+  uses. Both instances were logged out within 3 min this morning (VPS 10:17, home 10:20 UTC), so owner chose a
+  **separate login** per hand-over (not a copy of the home's own session) and automatic fetching + a button.
+- Design: `sync/protocol.ts` (pairing code `igls1.<tenant>.<pairId>.<secret>`, HMAC-signed `GET /api/sync/session`
+  with `X-Session-Sync` — the gateway strips client `X-IGL-*` —, X25519 + secret-bound sealed answer), `home.ts`,
+  `remote.ts`, `store.ts`; `ig/sidelogin.ts` (throwaway browser context + window, `AutoLogin.fillForm` under the
+  automatic login's lock); routes `api/sync.ts`; panels in web and Android 0.9.0.
+- AutoLogin refactor: `fillForm()` (form look incl. profile picker → VNC plan) and `exclusive()`; `sessionCookies()`
+  split out of the paste parser. Tab choice now ignores other browser contexts (`mainPages`, `sideTargets`).
+- Lesson (e2e caught it): a window from `Target.createTarget({newWindow})` opens **normal** even in kiosk mode — tab
+  strip + address bar push the page down 87 px, so every click landed above its field. `Browser.setWindowBounds
+  {windowState: fullscreen}` + a check that it's fullscreen at (0,0) before typing.
+- fake-e2e "mouse moved like a hand" threshold 30 → 16 (+ no merging: raw ≤ moves + 2): 2000 plans have 12–85 moves
+  (p5 25, 13 % ≤ 30); the old x11vnc nap bug delivered 6–15. It failed twice today on short plans, not on delivery.
+- Tests: 243 server (13 new), web 11, fake-e2e 83/83 (11 new), Android 67 + screenshot `phone_session_sync`.

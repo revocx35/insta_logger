@@ -389,7 +389,52 @@ starts it by hand. The password is stored encrypted on the server (under a key f
 never shown again and never logged — but the server must be able to read it on its own, so anyone with full access
 to the server could recover it, just like the Instagram session it already holds.
 
+**A second insta_logger that can't log in (e.g. on a VPS)?** Instagram hides the login form from datacenter
+addresses. Run the same account on both and use **Session sync** (Instagram page): on the one that can log in (the
+*home*, with *Automatic login* saved) press *Create pairing code*; on the other (the *remote*) paste that code with
+the home's address. Whenever the remote is logged out, it asks the home, which logs in **separately** in a throwaway
+browser window (the same human-like typing; its own session stays untouched) and hands that new session over,
+encrypted end to end — plain HTTP through a VPN is fine. At most one session per 15 minutes; failures pause it. See
+"Session sync over a VPN" below for the network part.
+
 From now on every new direct message is logged; the newest `HISTORY_PER_CHAT` messages of each chat are imported too.
+
+### Session sync over a VPN
+
+The remote's app container has no internet, so give it one way to the home: a relay inside the VPN that already
+reaches your home network, on a small internal network shared only with the app. Example with a Hysteria2/WireGuard
+client container `vpn` (its own compose project) on the VPS and the home at `192.168.1.42:80`:
+
+```yaml
+# the VPN project: a relay in the VPN client's network namespace, plus a network the remote app can join
+services:
+  vpn:
+    networks: [default, igl_sync]
+  igl-sync-relay:
+    image: alpine/socat:latest
+    network_mode: "service:vpn"
+    command: ["TCP-LISTEN:8091,fork,reuseaddr", "TCP:192.168.1.42:80"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+networks:
+  igl_sync:
+    name: igl_sync
+    internal: true
+```
+
+```yaml
+# insta_logger's docker-compose.override.yml on the VPS
+services:
+  app:
+    networks: [edge, backend, igl_sync]
+networks:
+  igl_sync:
+    external: true
+```
+
+Then use `http://vpn:8091` as the home address on the remote. The session is sealed end to end, so this hop doesn't
+need TLS; if the home is reachable over HTTPS, its certificate is verified.
 
 ## Android app
 
@@ -465,7 +510,7 @@ docker compose down               # stop (data stays in Docker volumes)
 cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck
 cd web && npm ci && npm test && npm run build
 scripts/smoke.sh                                   # full stack in an isolated compose project (23 checks, real instagram.com login page)
-cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (72 checks: stories, login hands-off, pasted session, automatic login, reels, stream, unsend, media, sending, reconcile)
+cd server && npx tsx ../scripts/dev/fake-e2e.mts   # full stack against a fake Instagram (83 checks: session sync, stories, login hands-off, pasted session, automatic login, reels, stream, unsend, media, sending, reconcile)
 ```
 
 Docs: [ARCHITECTURE.md](ARCHITECTURE.md) (design), [docs/instagram-notes.md](docs/instagram-notes.md) (Instagram Web

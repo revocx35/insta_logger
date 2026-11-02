@@ -79,6 +79,85 @@ export interface AutoLoginRun {
   result: 'started' | 'not_on_login_page' | 'not_saved' | 'busy';
 }
 
+/*
+ * Session sync (server/src/sync/): a "home" insta_logger that can log in to Instagram makes a separate session and hands
+ * it to a paired "remote" one (e.g. a VPS whose datacenter IP gets no login form), when the remote is logged out.
+ */
+
+/**
+ * Outcome of the home's last separate login for the remote: given · challenge (Instagram asked for a check: log in by
+ * hand) · failed (still on the login page: wrong password?) · no_form / covered · busy (the screen was in use) · error ·
+ * no_password (save the automatic login's password first) · cooldown (asked again too soon) · paused.
+ */
+export type SyncHomeResult = 'given' | 'challenge' | 'failed' | 'no_form' | 'covered' | 'busy' | 'error' | 'no_password' | 'cooldown' | 'paused';
+
+/** GET /api/sync/home: the giving side. The pairing secret is never returned after it was created. */
+export interface SyncHomeStatus {
+  paired: boolean;
+  pairedAt: number | null;
+  /** The automatic login's saved password makes the separate logins. */
+  passwordSaved: boolean;
+  /** A separate login is running for the remote. */
+  running: boolean;
+  /** Stopped after failed logins in a row until this time (or "Allow again"). */
+  pausedUntil: number | null;
+  lastRequestAt: number | null;
+  lastResult: SyncHomeResult | null;
+  lastGivenAt: number | null;
+}
+
+/** POST /api/sync/home/pair: a new pairing code (replaces the old pairing). Shown once: paste it on the remote. */
+export interface SyncPairing {
+  code: string;
+}
+
+/**
+ * Outcome of the remote's last fetch: logged_in · unreachable (no answer from the home address) · refused (the home
+ * didn't accept the pairing: pair again) · home_busy / home_cooldown / home_paused / home_no_password /
+ * home_challenge / home_failed (the home's side, see SyncHomeResult) · not_taken (the browser didn't take the
+ * session) · error.
+ */
+export type SyncRemoteResult =
+  | 'logged_in'
+  | 'unreachable'
+  | 'refused'
+  | 'home_busy'
+  | 'home_cooldown'
+  | 'home_paused'
+  | 'home_no_password'
+  | 'home_challenge'
+  | 'home_failed'
+  | 'not_taken'
+  | 'error';
+
+/** GET /api/sync/remote: the receiving side. The pairing code is write-only. */
+export interface SyncRemoteStatus {
+  configured: boolean;
+  /** The home insta_logger's address (as entered). */
+  url: string | null;
+  enabled: boolean;
+  /** Stopped after failed fetches in a row, until saved again or "Get session now". */
+  paused: boolean;
+  running: boolean;
+  lastAttemptAt: number | null;
+  lastResult: SyncRemoteResult | null;
+}
+
+/** PUT /api/sync/remote: url and code together (saves the pairing), and/or enabled. */
+export interface SyncRemoteSave {
+  url?: string;
+  code?: string;
+  enabled?: boolean;
+}
+
+/** POST /api/sync/remote/run */
+export interface SyncRemoteRun {
+  result: 'started' | 'not_on_login_page' | 'not_configured' | 'busy';
+}
+
+/** GET /api/sync/session (remote → home, signed with X-Session-Sync; not for browsers). */
+export type SyncSessionAnswer = { state: 'working'; retryMs: number } | { state: 'done'; box: string };
+
 export interface AppState {
   hasOwner: boolean;
   authenticated: boolean;
