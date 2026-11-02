@@ -40,7 +40,7 @@ Read these first, every session:
 - Commits end with the Co-Authored-By trailer. CI must stay green: it publishes the GHCR images on `main`.
 
 ## Commands
-- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 227 tests).
+- Server: `cd server && npm test && npm run typecheck` (install with `PUPPETEER_SKIP_DOWNLOAD=true npm ci`; 230 tests).
 - Chromium manager: `cd chromium/manager && CGO_ENABLED=0 go test ./...`.
 - Web: `cd web && npm test && npm run build`.
 - Full stack from source: `scripts/smoke.sh` (incl. multi-user checks). Standalone layout: `scripts/smoke.sh --deploy`.

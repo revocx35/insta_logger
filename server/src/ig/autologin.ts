@@ -5,7 +5,7 @@ import type { AppContext } from '../context.js';
 import { openGcm, randomKey, sealGcm } from '../crypto/primitives.js';
 import { RfbInput } from '../vnc/rfb.js';
 import type { ChromiumLink, CdpTarget } from './chromium.js';
-import { loginPlan, uniform, type Rng, type Step } from './humaninput.js';
+import { clickPlan, loginPlan, uniform, type Rng, type Step } from './humaninput.js';
 import { readLoginForm } from './loginform.js';
 import type { TabLook } from './loginwatch.js';
 
@@ -31,6 +31,8 @@ const COOLDOWN_MS = 10 * 60_000;
 /** Form not found / covered: look again sooner (the page may still be loading). */
 const SOFT_COOLDOWN_MS = 2 * 60_000;
 export const MAX_FAILURES = 2;
+/** After a click on the profile picker, how many times to look for the login form. */
+const PICKER_LOOKS = 4;
 /** The owner used the VNC screen this recently: leave the login to them. */
 export const OWNER_QUIET_MS = 2 * 60_000;
 /** After submitting, how long Instagram gets to log in before the attempt counts as failed. */
@@ -332,8 +334,8 @@ export class AutoLogin {
     this.ctx.repo.audit('ig_autologin_attempt', null);
     let rfb: RfbInput | null = null;
     try {
-      const form = await this.readForm(target, look.tab);
-      if (!form.ok) {
+      let form = await this.readForm(target, look.tab, creds.username);
+      if (form.ok === false) {
         this.finish(form.reason === 'covered' ? 'covered' : 'no_form');
         return;
       }
@@ -347,14 +349,26 @@ export class AutoLogin {
         return;
       }
       rfb = await RfbInput.connect(await this.deps.chromium.openVncTunnel(), await this.deps.chromium.vncPassword());
+      if (form.ok === 'picker') {
+        // Instagram's profile picker: "Continue" (the saved account) or "Use another profile", then the form.
+        const own = form.own;
+        await this.play(rfb, clickPlan(form.screen, form.button, this.rng), abort.signal, started);
+        for (let i = 0; i < PICKER_LOOKS; i++) {
+          await this.sleep(uniform(this.rng, 1800, 3200), abort.signal);
+          form = await this.readForm(target, look.tab, creds.username);
+          if (form.ok === true) break;
+        }
+        if (form.ok !== true) {
+          // "Continue" may log straight in; otherwise the verdict counts it as failed.
+          if (own) return this.awaitVerdict();
+          this.finish(form.ok === false && form.reason === 'covered' ? 'covered' : 'no_form');
+          return;
+        }
+        await this.sleep(uniform(this.rng, 400, 1400), abort.signal);
+      }
       const plan = loginPlan(form.layout, creds.username, creds.password, this.rng);
       await this.play(rfb, plan, abort.signal, started);
-      this.verdict = setTimeout(() => {
-        this.verdict = null;
-        this.finish('failed');
-        this.deps.report();
-      }, VERDICT_MS);
-      this.verdict.unref();
+      this.awaitVerdict();
     } catch (err) {
       const aborted = abort.signal.aborted || (err as Error).message === 'aborted';
       this.finish(aborted ? 'busy' : 'error');
@@ -366,6 +380,16 @@ export class AutoLogin {
       this.deps.report();
       if (this.abort === abort) this.abort = null;
     }
+  }
+
+  /** Gives Instagram VERDICT_MS to log in (onLoggedIn settles it), else the attempt counts as failed. */
+  private awaitVerdict(): void {
+    this.verdict = setTimeout(() => {
+      this.verdict = null;
+      this.finish('failed');
+      this.deps.report();
+    }, VERDICT_MS);
+    this.verdict.unref();
   }
 
   /** Plays a plan; the owner's own mouse or keyboard on the VNC screen meanwhile stops it (their hands win). */

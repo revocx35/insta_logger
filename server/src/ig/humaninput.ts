@@ -312,6 +312,13 @@ export interface LoginLayout {
   submit: Rect | null;
 }
 
+/** One click on [target] (a button), the mouse drifting in from somewhere on the screen. */
+export function clickPlan(screen: { width: number; height: number }, target: Rect, rng: Rng): Step[] {
+  const at: Point = { x: uniform(rng, screen.width * 0.25, screen.width * 0.85), y: uniform(rng, screen.height * 0.45, screen.height * 0.9) };
+  const p = clickPoint(target, rng, false);
+  return [{ wait: 0, kind: 'move', x: Math.round(at.x), y: Math.round(at.y) }, ...mousePath(at, p, target.width, rng), ...click(p, rng)];
+}
+
 /**
  * The whole login as a person does it: drift in from somewhere on the screen, click the username field, type, go to
  * the password (mouse or Tab), type, then press Enter or click the button.

@@ -7,7 +7,7 @@ import { fakeVncServer } from '../testutil/fakevnc.js';
 import { AutoLogin, MAX_FAILURES, mayAttempt, validCredentials, type Policy } from './autologin.js';
 import type { CdpTarget } from './chromium.js';
 import { seeded } from './humaninput.js';
-import { pickLoginFields, quadRect, type DomNode } from './loginform.js';
+import { pickLoginFields, pickProfileButton, quadRect, type DomNode, type FormLook } from './loginform.js';
 import type { TabLook } from './loginwatch.js';
 
 /* ------------------------------------------------------------ the form */
@@ -49,6 +49,25 @@ describe('pickLoginFields', () => {
     expect(pickLoginFields(el('BODY', {}, [el('INPUT', { type: 'checkbox' }), pass]))).toEqual({ username: null, password: pass, submit: null });
     expect(pickLoginFields(el('BODY', {}, [el('INPUT', { type: 'text' })]))).toBeNull();
     expect(pickLoginFields(el('BODY', {}, [el('INPUT', { type: 'password', disabled: '' })]))).toBeNull();
+  });
+
+  it("finds the profile picker's button (Instagram 2026-11: no form after a logout)", () => {
+    // The shape seen on the live page: a settings button, the profile, two nested "Continue" buttons, another profile.
+    const picker = () => {
+      const cont = el('DIV', { role: 'button', tabindex: '0' }, [el('DIV', { role: 'button' }, [el('SPAN', {}, [text('Continue')])])]);
+      const other = el('DIV', { role: 'button', tabindex: '0' }, [el('SPAN', {}, [text('Use another profile')])]);
+      const doc = el('BODY', {}, [el('DIV', { role: 'button' }, [el('svg')]), el('IMG'), el('SPAN', {}, [text('Owner.Account')]), cont, other, el('A', {}, [el('SPAN', {}, [text('Create new account')])])]);
+      return { doc, cont, other };
+    };
+    let p = picker();
+    expect(pickLoginFields(p.doc)).toBeNull();
+    expect(pickProfileButton(p.doc, 'owner.account')).toEqual({ button: p.cont, own: true });
+    expect(pickProfileButton(p.doc, '@owner.account')).toEqual({ button: p.cont, own: true });
+    p = picker();
+    // Another profile (or an email saved as the login): the normal form behind "Use another profile".
+    expect(pickProfileButton(p.doc, 'someone.else')).toEqual({ button: p.other, own: false });
+    expect(pickProfileButton(p.doc, 'owner@example.org')).toEqual({ button: p.other, own: false });
+    expect(pickProfileButton(el('BODY', {}, [el('DIV', { role: 'button' }, [text('Continue')])]), 'u')).toBeNull();
   });
 
   it('turns a quad into a box', () => {
@@ -106,6 +125,7 @@ describe('AutoLogin', () => {
   let port: number;
   let reports = 0;
   let formReads = 0;
+  let looks: FormLook[] = [];
 
   const make = () =>
     new AutoLogin(h.ctx, {
@@ -115,7 +135,7 @@ describe('AutoLogin', () => {
       sleep: async () => undefined, // no real waiting in tests
       readForm: async () => {
         formReads++;
-        return { ok: true, layout: LAYOUT };
+        return looks.shift() ?? { ok: true, layout: LAYOUT };
       },
     });
 
@@ -125,6 +145,7 @@ describe('AutoLogin', () => {
     port = await vnc.listen();
     reports = 0;
     formReads = 0;
+    looks = [];
   });
   afterEach(async () => {
     await vnc.close();
@@ -189,6 +210,47 @@ describe('AutoLogin', () => {
     expect(audit).toContain('ig_autologin_attempt:');
     expect(audit).toContain('ig_autologin_result:logged_in');
     expect(JSON.stringify(audit)).not.toContain('owner.account');
+  });
+
+  it('clicks through the profile picker, then types the password', async () => {
+    const a = make();
+    a.save({ username: 'owner.account', password: 'Pw!1' });
+    const button = { x: 684, y: 432, width: 528, height: 44 };
+    looks = [
+      { ok: 'picker', screen: LAYOUT.screen, button, own: true },
+      { ok: false, reason: 'no_form' }, // still loading
+      { ok: true, layout: { ...LAYOUT, username: null } },
+    ];
+    expect(await a.runNow(TARGET, LOOK)).toBe('started');
+    await settle();
+    expect(formReads).toBe(3);
+    const pointer = vnc.received.filter((b) => b[0] === 5);
+    // The first press lands on the Continue button.
+    const press = pointer.find((b) => b[1] === 1)!;
+    const [x, y] = [press.readUInt16BE(2), press.readUInt16BE(4)];
+    expect(x >= button.x && x <= button.x + button.width && y >= button.y && y <= button.y + button.height).toBe(true);
+    expect(vnc.received.some((b) => b[0] === 4)).toBe(true); // typed
+    expect(a.status().running).toBe(true);
+    a.onLoggedIn();
+    expect(a.status().lastResult).toBe('logged_in');
+  });
+
+  it('"Continue" that logs straight in, and a picker that leads nowhere', async () => {
+    const a = make();
+    a.save({ username: 'owner.account', password: 'Pw!1' });
+    const button = { x: 684, y: 432, width: 528, height: 44 };
+    const nothing: FormLook = { ok: false, reason: 'no_form' };
+    looks = [{ ok: 'picker', screen: LAYOUT.screen, button, own: true }, nothing, nothing, nothing, nothing];
+    await a.runNow(TARGET, LOOK);
+    await settle();
+    expect(vnc.received.some((b) => b[0] === 4)).toBe(false); // nothing typed
+    expect(a.status().running).toBe(true); // waiting: Continue may have logged in
+    a.onLoggedIn();
+    expect(a.status().lastResult).toBe('logged_in');
+    looks = [{ ok: 'picker', screen: LAYOUT.screen, button, own: false }, nothing, nothing, nothing, nothing];
+    await a.runNow(TARGET, LOOK);
+    await settle();
+    expect(a.status()).toMatchObject({ running: false, lastResult: 'no_form' });
   });
 
   it('stays away after a manual logout, while the owner uses the screen, and on a check', async () => {

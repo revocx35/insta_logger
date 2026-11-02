@@ -8,6 +8,10 @@ import { BrowserCdp, type TabInfo } from './loginwatch.js';
  * read commands are used — no Runtime, no script in the page, no `*.enable`, no Network/Fetch — and the typing
  * afterwards comes in through VNC with nothing attached (see loginwatch.ts for why the login page is left alone).
  * The browser runs in kiosk mode at (0,0) with a device scale of 1, so CSS viewport pixels are screen pixels.
+ *
+ * Since 2026-11 a logout often lands on Instagram's profile picker instead of the form ("<profile> · Continue · Use
+ * another profile", no password field). The look then reports the button to click: "Continue" when the picker shows
+ * the saved account, else "Use another profile"; after the click the automatic login looks again for the form.
  */
 
 export interface DomNode {
@@ -76,6 +80,36 @@ export function pickLoginFields(root: DomNode): LoginFields | null {
   return { username, password: els[pi]!, submit };
 }
 
+const CONTINUE = /^(continue|devam et|devam)$/i;
+const OTHER_PROFILE = /^(use another (profile|account)|log in(to)? (to )?another account|switch accounts?|başka bir (profil|hesap) kullan|hesap değiştir)$/i;
+
+const normName = (s: string) => s.trim().replace(/^@/, '').toLowerCase();
+
+/**
+ * The button to press on Instagram's profile picker: "Continue" right after the saved [username] (own: true), else
+ * "Use another profile" (own: false). Null when the page isn't the picker.
+ */
+export function pickProfileButton(root: DomNode, username: string): { button: DomNode; own: boolean } | null {
+  const want = normName(username);
+  let sawOwn = false;
+  let own: DomNode | null = null;
+  let other: DomNode | null = null;
+  const go = (n: DomNode) => {
+    if (n.nodeType === 3 && want && normName(n.nodeValue ?? '') === want) sawOwn = true;
+    if (n.nodeType === 1 && (n.nodeName === 'BUTTON' || attr(n, 'role') === 'button') && attr(n, 'aria-disabled') !== 'true' && attr(n, 'aria-hidden') !== 'true' && attr(n, 'disabled') === null) {
+      const label = textOf(n).trim();
+      if (!own && sawOwn && CONTINUE.test(label)) own = n;
+      if (!other && OTHER_PROFILE.test(label)) other = n;
+      return; // a button inside a button is the same button
+    }
+    for (const c of n.children ?? []) go(c);
+  };
+  go(root);
+  if (own) return { button: own, own: true };
+  if (other) return { button: other, own: false };
+  return null;
+}
+
 /** The bounding box of a content quad ([x1,y1, x2,y2, x3,y3, x4,y4]). */
 export function quadRect(q: number[]): Rect {
   const xs = [q[0]!, q[2]!, q[4]!, q[6]!];
@@ -117,23 +151,27 @@ export function isInside(node: number, ancestor: number, up: Map<number, number>
   return false;
 }
 
-export type FormLook = { ok: true; layout: LoginLayout } | { ok: false; reason: 'no_form' | 'hidden' | 'covered' };
+export type FormLook =
+  | { ok: true; layout: LoginLayout }
+  | { ok: 'picker'; screen: { width: number; height: number }; button: Rect; own: boolean }
+  | { ok: false; reason: 'no_form' | 'hidden' | 'covered' };
 
-/** Reads the login form's layout from the tab (attached only for these read commands). */
-export async function readLoginForm(target: CdpTarget, tab: TabInfo): Promise<FormLook> {
+/** Reads the login form's layout (or the profile picker's button) from the tab (attached only for these read commands). */
+export async function readLoginForm(target: CdpTarget, tab: TabInfo, savedUsername = ''): Promise<FormLook> {
   const cdp = await BrowserCdp.open(target);
   try {
     const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId: tab.id, flatten: true });
     try {
       const { root } = await cdp.send<{ root: DomNode }>('DOM.getDocument', { depth: -1, pierce: false }, sessionId);
       const fields = pickLoginFields(root);
-      if (!fields) return { ok: false, reason: 'no_form' };
+      const picker = fields ? null : pickProfileButton(root, savedUsername);
+      if (!fields && !picker) return { ok: false, reason: 'no_form' };
       const metrics = await cdp.send<{ cssLayoutViewport: { clientWidth: number; clientHeight: number } }>('Page.getLayoutMetrics', {}, sessionId);
       const vw = metrics.cssLayoutViewport.clientWidth;
       const vh = metrics.cssLayoutViewport.clientHeight;
       const up = parents(root);
       const byId = new Map(walk(root).map((n) => [n.backendNodeId, n]));
-      const box = async (n: DomNode | null): Promise<Rect | null | 'hidden' | 'covered'> => {
+      const box = async (n: DomNode | null, within?: number): Promise<Rect | null | 'hidden' | 'covered'> => {
         if (!n) return null;
         const { quads } = await cdp.send<{ quads: number[][] }>('DOM.getContentQuads', { backendNodeId: n.backendNodeId }, sessionId).catch(() => ({ quads: [] }));
         if (!quads[0]) return 'hidden';
@@ -142,9 +180,14 @@ export async function readLoginForm(target: CdpTarget, tab: TabInfo): Promise<Fo
         const hit = await cdp
           .send<{ backendNodeId: number }>('DOM.getNodeForLocation', { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), includeUserAgentShadowDOM: false }, sessionId)
           .catch(() => null);
-        if (!hit || !isInside(hit.backendNodeId, scope(n, up, byId), up)) return 'covered';
+        if (!hit || !isInside(hit.backendNodeId, within ?? scope(n, up, byId), up)) return 'covered';
         return r;
       };
+      if (!fields) {
+        const r = await box(picker!.button, picker!.button.backendNodeId);
+        if (r === 'hidden' || r === 'covered' || r === null) return { ok: false, reason: r ?? 'no_form' };
+        return { ok: 'picker', screen: { width: vw, height: vh }, button: r, own: picker!.own };
+      }
       const password = await box(fields.password);
       const username = await box(fields.username);
       const submit = await box(fields.submit);

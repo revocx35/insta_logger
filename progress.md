@@ -31,6 +31,9 @@
 - [x] Saved Instagram login (sealed, write-only) typed in by itself after a logout: VNC input with human mouse paths and
       typing rhythm, read-only DOM look for positions, restraint rules; web + Android panel; unit + fake-e2e tests
 
+## Done (2026-11-02, automatic login fix)
+- [x] Instagram's profile picker ("Continue" / "Use another profile") after a logout: clicked through, then the form
+
 ## Open
 - [ ] First run with the owner's real Instagram account (docs/instagram-notes.md "First live check")
 - [ ] Message requests folder in the history import (only INBOX is paged today; requests arrive live)

@@ -231,7 +231,8 @@ server/src/
                       opens/reloads the login page with a one-command attach; decides when to attach (pure, tested)
     autologin.ts      automatic login with the saved Instagram password: sealed storage (own key file), restraint
                       policy (pure, tested), one attempt = read the form, play the human input plan over VNC
-    loginform.ts      where the login form is: one short DOM-only read (getDocument/getContentQuads/hit test), detach
+    loginform.ts      where the login form (or the profile picker's button) is: one short DOM-only read
+                      (getDocument/getContentQuads/hit test), detach
     humaninput.ts     human-like input plans (pure, seeded tests): Bézier mouse paths, Fitts timing, typing rhythm, typos
     page.ts           IgPage: own CDP session on the tab — reads the stream (Network.webSocketFrameReceived, also in
                       workers), learns doc ids + headers from the tab's GraphQL requests, runs GraphQL inside the page,
@@ -311,7 +312,10 @@ shared/api.d.ts       API DTO types shared by server and web (type-only)
   (`DOM.getDocument`, `Page.getLayoutMetrics`, `DOM.getContentQuads`, `DOM.getNodeForLocation` as a hit test that
   nothing covers the fields) and detaches — no Runtime, no script in the page, no `*.enable`, like the one-command
   `Page.navigate` the watch already does; fields: the first password input, the text/email/tel input before it, the
-  submit / "Log in" button after it. (2) A plan from `humaninput.ts`: pointer drifts in from a random spot; cubic-Bézier
+  submit / "Log in" button after it. No password field but Instagram's **profile picker** (shown after most logouts
+  since 2026-11): the button to click — "Continue" when the saved username is the profile shown, else "Use another
+  profile" — is clicked with the same human mouse plan, then the form is looked for again (up to 4 short looks, each
+  detached); a "Continue" that logs straight in is settled by the verdict below. (2) A plan from `humaninput.ts`: pointer drifts in from a random spot; cubic-Bézier
   paths with minimum-jerk speed, Fitts's-law duration, tremor, 8–16 ms event spacing, occasional overshoot + correction;
   off-centre click with a human hold; Ctrl+A then typing with log-normal gaps (median 120–190 ms per run), overlapping
   key holds, Shift for capitals/symbols, "thinking" pauses, rare neighbour-key typos erased with Backspace; to the

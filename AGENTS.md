@@ -35,7 +35,7 @@ Read before changing anything: [ARCHITECTURE.md](ARCHITECTURE.md) (design, secur
 ## Commands
 
 ```bash
-cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck   # 227 tests
+cd server && PUPPETEER_SKIP_DOWNLOAD=true npm ci && npm test && npm run typecheck   # 230 tests
 cd web && npm ci && npm test && npm run build                                        # strict-CSP build
 cd chromium/manager && CGO_ENABLED=0 go test ./...                                    # Go manager (also run in the image build)
 scripts/smoke.sh                     # whole stack from source, real instagram.com login page + multi-user checks
@@ -120,6 +120,10 @@ publishes `ghcr.io/revocx35/insta_logger-{app,chromium,caddy}` on `main`. Deploy
 - `npx` doesn't forward SIGTERM: spawn detached and kill the process group (fake-e2e does).
 - Right after a tab (re)load Instagram Web's modules aren't ready: GraphQL waits for `getAsyncParams`, the inbox for
   the device id.
+- After a logout Instagram (since 2026-11) often shows a **profile picker** ("<profile> · Continue · Use another
+  profile") instead of the form. `loginform.ts` reports its button; the attempt clicks "Continue" when the picker shows
+  the saved username, otherwise "Use another profile", then looks again for the form (up to 4 looks). Without this
+  every attempt ended `no_form`. Keep the button labels (`CONTINUE`/`OTHER_PROFILE`) in English and Turkish.
 - The automatic login maps CSS pixels 1:1 to the VNC screen: Chromium runs in kiosk mode at (0,0) with
   `--force-device-scale-factor=1`. Changing the window flags breaks the click positions.
 - x11vnc runs with `-pointer_mode 1 -nonap -sb 0` (chromium/manager/instance.go): without them, input after idle time

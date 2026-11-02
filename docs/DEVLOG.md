@@ -144,3 +144,16 @@ than reinvented:
 - fake-e2e repaired (it had been failing since multi-user): a cookie jar for the gateway's two cookies, `tabAttached()`
   through the manager relay with tenant 1's instance token, IPv4-first (`localhost` → ::1 was refused), and a wait
   until Caddy serves before signup. 72/72. The "downtime unsend flagged" check is timing-sensitive (failed 2 of 5 runs).
+
+## 2026-11-02 — automatic login: Instagram's profile picker
+
+- Owner: "the automatic log in isn't working". CT 120 logged every attempt (every 2 min since the 10:20 logout) as
+  `no_form`. A read-only look at the tab (DOM summary + `Page.captureScreenshot`, then detached) showed Instagram's
+  new logged-out screen: the remembered profile with "Continue", "Use another profile", "Create new account" — no
+  password field, so `pickLoginFields` found nothing.
+- Fix: `pickProfileButton` (loginform.ts) finds "Continue" after a text node equal to the saved username (else "Use
+  another profile"); `readLoginForm` returns `{ ok: 'picker', button }`; the attempt clicks it with `clickPlan`
+  (humaninput.ts) over VNC, then looks again for the form (≤ 4 looks, 1.8–3.2 s apart) and types as before. A
+  "Continue" that logs in without a password is settled by the normal verdict.
+- Tests: 230 server (3 new: picker detection on the live page's shape, picker → password, picker → straight in /
+  nowhere). No API/UI change, so web and Android are unchanged.
