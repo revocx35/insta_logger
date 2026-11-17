@@ -189,3 +189,11 @@ than reinvented:
   back in the username field → Ctrl+A + password replaced the username. Page screenshots can't show browser UI.
 - Fix: `loginPlan` presses Escape after the username (closes the suggestion, as a person would). Probe with the fix:
   seeds 2/4/6/7 (click and Tab paths) fill both fields, no dialog. Applies to the automatic login too.
+
+## 2026-11-17 — thread query needs a new relay variable (daily compatibility check)
+
+- Instagram's web build changed `IGDThreadDetailQuery`: every per-chat reconcile failed with
+  `missing_required_variable_value` (homelab + VPS, from about 03:50 UTC). Live stream capture and stories were not hit.
+- mautrix-meta already sends `__relay_internal__pv__PolarisAIGMAccountLabelEnabledrelayprovider: false` for it; added to
+  `IgApi.thread()` (the extra variable is also in mautrix-meta's mailbox request; ours works without it, left alone).
+- Tests: 243 server pass.
