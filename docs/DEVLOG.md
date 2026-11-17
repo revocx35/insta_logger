@@ -194,6 +194,8 @@ than reinvented:
 
 - Instagram's web build changed `IGDThreadDetailQuery`: every per-chat reconcile failed with
   `missing_required_variable_value` (homelab + VPS, from about 03:50 UTC). Live stream capture and stories were not hit.
-- mautrix-meta already sends `__relay_internal__pv__PolarisAIGMAccountLabelEnabledrelayprovider: false` for it; added to
-  `IgApi.thread()` (the extra variable is also in mautrix-meta's mailbox request; ours works without it, left alone).
+- Read from the tab's own operation (`W.require('IGDThreadDetailQuery$Parameters').params.providedVariables`): the build
+  now wants `__relay_internal__pv__IGDSafetyNoticesWebEnabledrelayprovider` (false). Added to `IgApi.thread()`. (A first
+  guess from mautrix-meta, `PolarisAIGMAccountLabelEnabled`, was wrong and is not sent.) To find a new variable
+  next time, read `providedVariables` of `<QueryName>$Parameters` from the logged-in tab.
 - Tests: 243 server pass.

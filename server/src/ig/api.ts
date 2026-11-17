@@ -140,7 +140,7 @@ export class IgClient {
       __relay_internal__pv__IGDEnableOffMsysChatThemesQErelayprovider: false,
       __relay_internal__pv__IGDInitialMessagePageCountrelayprovider: PAGE_SIZE,
       // Required since Instagram's 2026-11-17 web build (missing_required_variable_value without it).
-      __relay_internal__pv__PolarisAIGMAccountLabelEnabledrelayprovider: false,
+      __relay_internal__pv__IGDSafetyNoticesWebEnabledrelayprovider: false,
     });
     return data.get_slide_thread_nullable?.as_ig_direct_thread ?? null;
   }
