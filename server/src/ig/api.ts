@@ -141,6 +141,8 @@ export class IgClient {
       __relay_internal__pv__IGDInitialMessagePageCountrelayprovider: PAGE_SIZE,
       // Required since Instagram's 2026-11-17 web build (missing_required_variable_value without it).
       __relay_internal__pv__IGDSafetyNoticesWebEnabledrelayprovider: false,
+      // Required since Instagram's 2026-11-20 web build (same symptom).
+      __relay_internal__pv__IGDHideSeenWhenReadReceiptsOffGKrelayprovider: false,
     });
     return data.get_slide_thread_nullable?.as_ig_direct_thread ?? null;
   }

@@ -199,3 +199,8 @@ than reinvented:
   guess from mautrix-meta, `PolarisAIGMAccountLabelEnabled`, was wrong and is not sent.) To find a new variable
   next time, read `providedVariables` of `<QueryName>$Parameters` from the logged-in tab.
 - Tests: 243 server pass.
+
+## 2026-11-20 — thread query, second new variable (compatibility check)
+- `IGDThreadDetailQuery` again failed per chat with `missing_required_variable_value` (homelab + VPS). Same method
+  (`providedVariables` read from the tab) showed one more variable: `__relay_internal__pv__IGDHideSeenWhenReadReceiptsOffGKrelayprovider`
+  (false), added to `IgApi.thread()`. Tests: 243 server pass, typecheck clean.
